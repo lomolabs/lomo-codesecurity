@@ -1,0 +1,118 @@
+.confirmation-dialog {
+  width: min(calc(100vw - 32px), 600px);
+  max-height: min(86vh, 720px);
+  margin: auto;
+  overflow: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  color: var(--text);
+  padding: 0;
+  box-shadow: 0 22px 64px rgb(0 0 0 / 55%);
+}
+
+.confirmation-dialog::backdrop {
+  background: rgb(0 0 0 / 72%);
+}
+
+.confirmation-dialog-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--border);
+  padding: 20px 24px 16px;
+}
+
+.confirmation-dialog-head h2 {
+  margin: 4px 0 0;
+  font-size: 21px;
+}
+
+.confirmation-dialog-head > svg {
+  flex: 0 0 auto;
+  color: var(--warning);
+}
+
+.confirmation-dialog-danger .confirmation-dialog-head > svg {
+  color: var(--danger);
+}
+
+.confirmation-dialog > p {
+  margin: 0;
+  color: #c5d0d6;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  padding: 18px 24px 8px;
+  white-space: pre-wrap;
+}
+
+.confirmation-dialog-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 18px 24px 24px;
+}
+
+.confirmation-dialog-actions button {
+  /* Include the 2px outline + 2px offset, with rounding room, when revealed. */
+  scroll-margin: 6px;
+}
+
+.confirmation-dialog-form {
+  display: grid;
+  gap: 8px;
+  padding: 10px 24px 0;
+}
+
+.confirmation-dialog-form label {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.confirmation-dialog-form textarea {
+  box-sizing: border-box;
+  min-height: 112px;
+  resize: vertical;
+  width: 100%;
+}
+
+.confirmation-dialog-count {
+  color: var(--muted);
+  font-size: 12px;
+  text-align: right;
+}
+
+.confirmation-dialog-error {
+  color: var(--danger-text, #ffb7bd);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.confirmation-dialog-form .confirmation-dialog-actions {
+  margin-inline: -24px;
+  padding-top: 10px;
+}
+
+.confirmation-dialog-actions .danger-action {
+  border-color: #773d42;
+  background: #431f24;
+  color: #ffd8dc;
+}
+
+.confirmation-dialog-actions .danger-action:hover:not(:disabled) {
+  border-color: #a44e57;
+  background: #56272d;
+}
+
+@media (max-width: 520px) {
+  .confirmation-dialog-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .confirmation-dialog-actions button {
+    width: 100%;
+  }
+}

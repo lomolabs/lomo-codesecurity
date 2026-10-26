@@ -1,0 +1,16 @@
+{
+  "schema": "lomo-first-party-review/v1",
+  "mode": "source-only",
+  "cases": [
+    {"file": "accounts.py", "scanner": "sast-lite", "rules": [{"id": "sast.sql_string_format", "severity": "medium", "vulnerable": 1, "fixed": 0}]},
+    {"file": "repository_tasks.py", "scanner": "sast-lite", "rules": [{"id": "sast.python_shell_true", "severity": "high", "vulnerable": 1, "fixed": 0}]},
+    {"file": "settings.js", "scanner": "sast-lite", "rules": [{"id": "sast.javascript_eval", "severity": "high", "vulnerable": 1, "fixed": 0}]},
+    {"file": "credentials.py", "scanner": "secrets-lite", "rules": [{"id": "secret.generic_assignment", "severity": "high", "vulnerable": 1, "fixed": 0}]},
+    {"file": "Dockerfile", "scanner": "iac-lite", "rules": [{"id": "iac.docker_no_user", "severity": "medium", "vulnerable": 1, "fixed": 0}]},
+    {"file": "deployment.yaml", "scanner": "iac-lite", "rules": [
+      {"id": "iac.k8s_privileged", "severity": "critical", "vulnerable": 1, "fixed": 0},
+      {"id": "iac.k8s_host_path", "severity": "high", "vulnerable": 1, "fixed": 0},
+      {"id": "iac.k8s_root_allowed", "severity": "medium", "vulnerable": 1, "fixed": 0}
+    ]}
+  ]
+}

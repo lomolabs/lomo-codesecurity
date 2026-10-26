@@ -1,0 +1,121 @@
+rules:
+  - id: kodesec-python-dangerous-eval
+    message: Dynamic Python evaluation can execute attacker-controlled code; parse a constrained data format instead.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      category: security
+      confidence: HIGH
+      cwe: CWE-95
+      technology: [python]
+    pattern: eval(...)
+
+  - id: kodesec-python-dangerous-exec
+    message: Dynamic Python execution can run attacker-controlled code; replace it with an explicit operation allowlist.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      category: security
+      confidence: HIGH
+      cwe: CWE-95
+      technology: [python]
+    pattern: exec(...)
+
+  - id: kodesec-python-subprocess-shell
+    message: A Python subprocess with shell=True invokes a command shell; pass a fixed argv list without a shell.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      category: security
+      confidence: HIGH
+      cwe: CWE-78
+      technology: [python]
+    pattern-either:
+      - pattern: subprocess.run(..., shell=True, ...)
+      - pattern: subprocess.Popen(..., shell=True, ...)
+      - pattern: subprocess.call(..., shell=True, ...)
+      - pattern: subprocess.check_call(..., shell=True, ...)
+      - pattern: subprocess.check_output(..., shell=True, ...)
+
+  - id: kodesec-javascript-dangerous-eval
+    message: JavaScript eval executes a string as code; use a constrained parser or explicit dispatch table.
+    severity: ERROR
+    languages: [javascript, typescript]
+    metadata:
+      category: security
+      confidence: HIGH
+      cwe: CWE-95
+      technology: [javascript, typescript]
+    pattern: eval(...)
+
+  - id: kodesec-javascript-child-process-exec
+    message: child_process.exec invokes a command shell; use execFile or spawn with a fixed argv array.
+    severity: ERROR
+    languages: [javascript, typescript]
+    metadata:
+      category: security
+      confidence: HIGH
+      cwe: CWE-78
+      technology: [javascript, typescript, nodejs]
+    pattern: child_process.exec(...)
+
+  - id: kodesec-go-command-shell
+    message: Starting a command shell with -c or /c creates a command-injection sink; execute a fixed program and argv directly.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: security
+      confidence: HIGH
+      cwe: CWE-78
+      technology: [go]
+    pattern-either:
+      - pattern: exec.Command("sh", "-c", ...)
+      - pattern: exec.Command("bash", "-c", ...)
+      - pattern: exec.Command("/bin/sh", "-c", ...)
+      - pattern: exec.Command("/bin/bash", "-c", ...)
+      - pattern: exec.Command("cmd", "/c", ...)
+      - pattern: exec.Command("cmd.exe", "/c", ...)
+
+  - id: kodesec-java-runtime-exec
+    message: Runtime.exec starts an operating-system command; use a fixed executable and validated arguments through ProcessBuilder.
+    severity: ERROR
+    languages: [java]
+    metadata:
+      category: security
+      confidence: HIGH
+      cwe: CWE-78
+      technology: [java]
+    pattern: Runtime.getRuntime().exec(...)
+
+  - id: kodesec-ruby-dangerous-eval
+    message: Ruby eval executes a string as code; replace it with constrained parsing or explicit dispatch.
+    severity: ERROR
+    languages: [ruby]
+    metadata:
+      category: security
+      confidence: HIGH
+      cwe: CWE-95
+      technology: [ruby]
+    pattern: eval(...)
+
+  - id: kodesec-php-dangerous-eval
+    message: PHP eval executes a string as code; replace it with constrained parsing or explicit dispatch.
+    severity: ERROR
+    languages: [php]
+    metadata:
+      category: security
+      confidence: HIGH
+      cwe: CWE-95
+      technology: [php]
+    pattern: eval(...)
+
+  - id: kodesec-php-shell-exec
+    message: PHP shell_exec invokes a command shell; use a fixed executable interface and validated arguments.
+    severity: ERROR
+    languages: [php]
+    metadata:
+      category: security
+      confidence: HIGH
+      cwe: CWE-78
+      technology: [php]
+    pattern: shell_exec(...)

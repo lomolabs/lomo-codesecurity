@@ -1,0 +1,17 @@
+[
+  {
+    "kind": "secret",
+    "title": "AWS Access Key ID",
+    "message": "Artifact: app.py\nType: \nSecret AWS Access Key ID\nSeverity: CRITICAL\nMatch: [REDACTED]"
+  },
+  {
+    "kind": "configuration",
+    "title": "Specify at least 1 USER command in Dockerfile with non-root user as argument",
+    "message": "Artifact: Dockerfile\nType: dockerfile\nVulnerability DS-0002\nSeverity: HIGH\nMessage: Specify at least 1 USER command in Dockerfile with non-root user as argument\nLink: [DS-0002](https://avd.aquasec.com/misconfig/ds-0002)"
+  },
+  {
+    "kind": "dependency",
+    "title": "werkzeug \u00b7 CVE-2024-34069",
+    "message": "Package: werkzeug\nInstalled Version: 2.3.3\nVulnerability CVE-2024-34069\nSeverity: HIGH\nFixed Version: 3.0.3\nLink: [CVE-2024-34069](https://avd.aquasec.com/nvd/cve-2024-34069)"
+  }
+]

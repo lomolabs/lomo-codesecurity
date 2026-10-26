@@ -1,0 +1,50 @@
+name: CodeQL for public source
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: CodeQL (${{ matrix.language }})
+    # This preview does not assume private-repository Code Security entitlement.
+    # A skipped private job is not a security pass; there is no substitute job.
+    if: ${{ github.event.repository.private == false }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [python, javascript-typescript, actions]
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4 resolved commit
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+          tools: linked
+          trap-caching: false
+          dependency-caching: false
+          debug: false
+      - name: Analyze source and submit code-scanning results
+        uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4 resolved commit
+        with:
+          category: /language:${{ matrix.language }}
+          upload-database: false

@@ -1,0 +1,25 @@
+{
+  "name": "lomo-kodesecurity-playwright",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "browser:install": "node ./scripts/playwright.mjs install chromium",
+    "build:web": "node ./scripts/build-web.mjs",
+    "test": "npm run build:web && node ./scripts/offline-playwright.mjs",
+    "test:foundation": "npm run build:web && node ./scripts/offline-playwright.mjs --kodesec-offline-targeted tests/foundation.spec.ts tests/findings.performance.spec.ts tests/navigation.performance.spec.ts tests/operator-actions.spec.ts tests/scanner-lifecycle.spec.ts",
+    "test:targeted": "npm run build:web && node ./scripts/offline-playwright.mjs --kodesec-offline-targeted",
+    "test:offline": "node ./scripts/offline-playwright.mjs",
+    "test:update": "npm run build:web && node ./scripts/update-snapshots.mjs",
+    "typecheck": "tsc --noEmit -p .",
+    "test:compose:check": "npm run typecheck && node --test ./scripts/compose-harness.test.mjs ./scripts/live-action-ledger.test.mjs && node --check ./scripts/compose-smoke.mjs && node ./scripts/compose-config-check.mjs",
+    "test:compose": "node ./scripts/compose-smoke.mjs",
+    "test:reference-viewport": "node --test ./scripts/reference-viewport.test.mjs"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.10.2",
+    "@playwright/test": "1.61.1",
+    "@types/node": "26.1.0",
+    "typescript": "6.0.3"
+  }
+}

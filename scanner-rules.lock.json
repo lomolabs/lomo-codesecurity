@@ -1,0 +1,186 @@
+{
+  "schema_version": 1,
+  "ruleset_id": "kodesec-v0.1-candidate-2026-08-12",
+  "rule_sets": [
+    {
+      "id": "opengrep-reviewed-rules",
+      "tool_id": "opengrep",
+      "engine_version": "1.27.0",
+      "requested_version": "0.1.0",
+      "state": "verified",
+      "distribution_mode": "embedded",
+      "source_repository": null,
+      "source_path": "services/scanner/rules/opengrep",
+      "requested_ref": "kodesec-opengrep-rules@0.1.0",
+      "source_commit": null,
+      "archive_url": null,
+      "archive_sha256": null,
+      "assets": [],
+      "tree_hash_algorithm": "kodesec-canonical-tree-v1",
+      "tree_sha256": "001cd317216c296d29ccc4c86d68d912a5c9ff7b2ea52d6c81b3951bc6588183",
+      "tree_file_count": 3,
+      "tree_size_bytes": 16457,
+      "files": [
+        {
+          "path": "LICENSE",
+          "kind": "license",
+          "size_bytes": 11357,
+          "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+          "rule_ids": []
+        },
+        {
+          "path": "README.md",
+          "kind": "notice",
+          "size_bytes": 1147,
+          "sha256": "10b4af004328b46e4b1dbd8f95561b758204cba723ca85a0aeb7ea46b7f79b02",
+          "rule_ids": []
+        },
+        {
+          "path": "rules.yml",
+          "kind": "rule",
+          "size_bytes": 3953,
+          "sha256": "3a4da41d7acdc7f793188a303b74cd4b6b0fc7275a29ecf294bbce14086feb53",
+          "rule_ids": [
+            "kodesec-go-command-shell",
+            "kodesec-java-runtime-exec",
+            "kodesec-javascript-child-process-exec",
+            "kodesec-javascript-dangerous-eval",
+            "kodesec-php-dangerous-eval",
+            "kodesec-php-shell-exec",
+            "kodesec-python-dangerous-eval",
+            "kodesec-python-dangerous-exec",
+            "kodesec-python-subprocess-shell",
+            "kodesec-ruby-dangerous-eval"
+          ]
+        }
+      ],
+      "canaries": [
+        {
+          "id": "supported-sinks-positive",
+          "state": "verified",
+          "fixture_path": "tests/scanner-runtime/fixtures/opengrep/positive",
+          "fixture_kind": "tree",
+          "fixture_hash_algorithm": "kodesec-canonical-tree-v1",
+          "fixture_sha256": "a6fe1e138c078a8b6ef74dde5e5d2792e1706f5c278e4d9ba854ef0583cfd621",
+          "output_sha256": "79272bf4929fbf35861b7ada00d130dd850490d1afa8d6b0fd789c1984e785d8",
+          "expected_exit_code": 0,
+          "expected_result_count": 10,
+          "expected_rule_ids": [
+            "kodesec-go-command-shell",
+            "kodesec-java-runtime-exec",
+            "kodesec-javascript-child-process-exec",
+            "kodesec-javascript-dangerous-eval",
+            "kodesec-php-dangerous-eval",
+            "kodesec-php-shell-exec",
+            "kodesec-python-dangerous-eval",
+            "kodesec-python-dangerous-exec",
+            "kodesec-python-subprocess-shell",
+            "kodesec-ruby-dangerous-eval"
+          ],
+          "reason": null
+        },
+        {
+          "id": "supported-sinks-zero",
+          "state": "verified",
+          "fixture_path": "tests/scanner-runtime/fixtures/opengrep/zero",
+          "fixture_kind": "tree",
+          "fixture_hash_algorithm": "kodesec-canonical-tree-v1",
+          "fixture_sha256": "4dd805f63b469bcdcf79441cf27888026fdce6f59f5f6326ef4304f02eede4e4",
+          "output_sha256": "76f45a74ad4efe9401f4fb64a11c689c27669feaa4c48ca609a0e1b0586d0212",
+          "expected_exit_code": 0,
+          "expected_result_count": 0,
+          "expected_rule_ids": [],
+          "reason": null
+        }
+      ],
+      "license": {
+        "state": "verified",
+        "spdx": "Apache-2.0",
+        "source_ref": "repo:services/scanner/rules/opengrep/LICENSE",
+        "source_sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+        "reason": null
+      },
+      "reason": null
+    },
+    {
+      "id": "bearer-rules",
+      "tool_id": "bearer",
+      "engine_version": "2.1.0+lomo.1",
+      "requested_version": "v0.48.4",
+      "state": "verified",
+      "distribution_mode": "external",
+      "source_repository": "https://github.com/Bearer/bearer-rules",
+      "source_path": null,
+      "requested_ref": "v0.48.4",
+      "source_commit": "30a6919acec715bf915ff4704d1b4ffeac998eab",
+      "archive_url": null,
+      "archive_sha256": null,
+      "assets": [
+        {
+          "name": "go.tar.gz",
+          "url": "https://github.com/Bearer/bearer-rules/releases/download/v0.48.4/go.tar.gz",
+          "size_bytes": 40288,
+          "sha256": "0d406d5295d3bcc408c856ba80a2fcfb29e28e3f316afb68d0d3bc2aab103643"
+        },
+        {
+          "name": "java.tar.gz",
+          "url": "https://github.com/Bearer/bearer-rules/releases/download/v0.48.4/java.tar.gz",
+          "size_bytes": 39787,
+          "sha256": "0b0c2ccfd10fa2b8d9df792274dc162fa9b058614bf2203449817c0ab5ee4bc3"
+        },
+        {
+          "name": "javascript.tar.gz",
+          "url": "https://github.com/Bearer/bearer-rules/releases/download/v0.48.4/javascript.tar.gz",
+          "size_bytes": 40021,
+          "sha256": "08c12673a8bdcf0cb0332aac93c1657baba1d2d27503e954f564268f76482688"
+        },
+        {
+          "name": "php.tar.gz",
+          "url": "https://github.com/Bearer/bearer-rules/releases/download/v0.48.4/php.tar.gz",
+          "size_bytes": 31011,
+          "sha256": "4197647742328a32c0b4cd00feaa33ff125cf41ce8842369523346a722411ab0"
+        },
+        {
+          "name": "python.tar.gz",
+          "url": "https://github.com/Bearer/bearer-rules/releases/download/v0.48.4/python.tar.gz",
+          "size_bytes": 43519,
+          "sha256": "771bf56a12e6abbf36549174f32b93d83244e879dc36247e2281f9e755cc6208"
+        },
+        {
+          "name": "ruby.tar.gz",
+          "url": "https://github.com/Bearer/bearer-rules/releases/download/v0.48.4/ruby.tar.gz",
+          "size_bytes": 33081,
+          "sha256": "86dd93dd2fe0ab95cc5bafd0ab4722aa60733c8722774b2029e4b1f81b42dfa0"
+        }
+      ],
+      "tree_hash_algorithm": "kodesec-canonical-tree-v1",
+      "tree_sha256": "1e58ac09b18435ed53e57fc67f1d31af6c13e17776469a8f1fe8995f40f1a0e1",
+      "tree_file_count": 554,
+      "tree_size_bytes": 1278246,
+      "files": [],
+      "canaries": [
+        {
+          "id": "python-eval-user-input",
+          "state": "verified",
+          "fixture_path": "tests/scanner-runtime/fixtures/bearer/rules-canary/positive.py",
+          "fixture_kind": "file",
+          "fixture_hash_algorithm": "sha256-file-v1",
+          "fixture_sha256": "9289314772d645fff0ce80ac985af3f3dd8557622ee4888f25e4702fc62a669f",
+          "output_sha256": "29b9f3c2464585d242130aae7c13eac0f704beb40ccc42c50ed13b8650480bd7",
+          "expected_exit_code": 1,
+          "expected_result_count": 1,
+          "expected_rule_ids": ["python_lang_eval_using_user_input"],
+          "reason": null
+        }
+      ],
+      "license": {
+        "state": "verified",
+        "spdx": "Elastic-2.0",
+        "source_ref": "https://raw.githubusercontent.com/Bearer/bearer-rules/30a6919acec715bf915ff4704d1b4ffeac998eab/LICENSE.txt",
+        "source_sha256": "48255018b41fc0e965b1115af7e6779bc218bb8a6747d561da800d5022622aa2",
+        "reason": null
+      },
+      "reason": null
+    }
+  ]
+}

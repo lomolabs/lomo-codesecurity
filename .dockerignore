@@ -1,0 +1,72 @@
+# Source-control and runtime state never belong in an image context.
+.git
+.git/**
+.env
+.env.*
+**/.env
+**/.env.*
+.kodesec-test
+.kodesec-test/**
+.kodesec-runtime
+.kodesec-runtime/**
+backups
+backups/**
+
+# Reproducible dependencies and build/test output are recreated in-image or CI.
+**/node_modules
+**/.browsers
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/.venv
+**/venv
+**/dist
+**/build
+**/.coverage
+**/htmlcov
+**/coverage
+**/.results
+**/test-results
+**/playwright-report
+**/blob-report
+apps/api/requirements-test.txt
+!apps/api/requirements-production.lock
+
+.DS_Store
+**/.DS_Store
+*.log
+*.tmp
+*.swp
+*.swo
+*.vsix
+
+# The root control image copies apps/api, apps/web, and the advisor connector.
+.github
+.vscode
+docs
+examples
+extensions
+infra
+scripts
+services
+testbed
+tests
+README.md
+Makefile
+docker-compose.yml
+
+# The scanner image now builds from the repository root so one immutable image
+# can consume the canonical tool/rule locks and qualification canaries. Keep
+# every other service/test tree excluded from both scanner and control builds.
+!services
+services/*
+!services/advisor_connector
+!services/advisor_connector/**
+!services/scanner
+!services/scanner/**
+!tests
+tests/*
+!tests/scanner-runtime
+!tests/scanner-runtime/**

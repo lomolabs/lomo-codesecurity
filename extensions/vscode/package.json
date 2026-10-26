@@ -1,0 +1,482 @@
+{
+  "name": "code-security",
+  "displayName": "Lomo CodeSecurity",
+  "description": "Find security issues in your code, dependencies and infrastructure with local scanners and an optional Advisor.",
+  "version": "0.1.0",
+  "publisher": "lomo-dev",
+  "license": "Apache-2.0",
+  "icon": "media/lomo-icon.png",
+  "galleryBanner": {
+    "color": "#101316",
+    "theme": "dark"
+  },
+  "engines": {
+    "vscode": "^1.135.0"
+  },
+  "categories": [
+    "Linters",
+    "Other"
+  ],
+  "keywords": [
+    "security",
+    "vulnerability",
+    "SAST",
+    "secrets",
+    "dependencies",
+    "Terraform"
+  ],
+  "capabilities": {
+    "virtualWorkspaces": {
+      "supported": false,
+      "description": "CodeSecurity needs files on disk. Clone the repository locally or open it in Remote WSL before scanning."
+    },
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "IDE access remains available in Restricted Mode. Trust the workspace before pairing or opening the integrated dashboard, or before CodeSecurity reads, scans, annotates, or opens workspace source.",
+      "restrictedConfigurations": [
+        "lomoCodeSecurity.apiBaseUrl"
+      ]
+    }
+  },
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:lomoCodeSecurity.pair",
+    "onCommand:lomoCodeSecurity.reconnect",
+    "onCommand:lomoCodeSecurity.addBrowser",
+    "onCommand:lomoCodeSecurity.openDashboard",
+    "onCommand:lomoCodeSecurity.scanWorkspace",
+    "onCommand:lomoCodeSecurity.scanWorkspaceFolders",
+    "onCommand:lomoCodeSecurity.scanRootFolder",
+    "onCommand:lomoCodeSecurity.scanFolder",
+    "onCommand:lomoCodeSecurity.scanFile",
+    "onCommand:lomoCodeSecurity.refreshFindings",
+    "onCommand:lomoCodeSecurity.protectPushes",
+    "onCommand:lomoCodeSecurity.checkOutgoingCommits",
+    "onCommand:lomoCodeSecurity.openFinding",
+    "onCommand:lomoCodeSecurity.revealFinding",
+    "onCommand:lomoCodeSecurity.setLifecycle",
+    "onCommand:lomoCodeSecurity.runAdvisor",
+    "onCommand:lomoCodeSecurity.rescanFile",
+    "onCommand:lomoCodeSecurity.deleteFinding",
+    "onCommand:lomoCodeSecurity.reopenInRemoteWsl",
+    "onView:lomoCodeSecurity.findings",
+    "onCommand:lomoCodeSecurity.gettingStarted",
+    "onCommand:lomoCodeSecurity.selectRepositories"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "lomoCodeSecurity.protectPushes",
+        "title": "Protect Pushes…",
+        "category": "CodeSecurity"
+      },
+      {
+        "command": "lomoCodeSecurity.checkOutgoingCommits",
+        "title": "Check Outgoing Commits…",
+        "category": "CodeSecurity"
+      },
+      {
+        "command": "lomoCodeSecurity.pair",
+        "title": "Connect / Review IDE Access",
+        "category": "CodeSecurity"
+      },
+      {
+        "command": "lomoCodeSecurity.reconnect",
+        "title": "Reconnect to Local Service",
+        "category": "CodeSecurity"
+      },
+      {
+        "command": "lomoCodeSecurity.openDashboard",
+        "title": "Open Dashboard",
+        "category": "CodeSecurity"
+      },
+      {
+        "command": "lomoCodeSecurity.addBrowser",
+        "title": "Add Browser to Lomo CodeSecurity",
+        "category": "CodeSecurity",
+        "icon": "$(browser)"
+      },
+      {
+        "command": "lomoCodeSecurity.scanWorkspace",
+        "title": "Scan Workspace with Lomo CodeSecurity",
+        "category": "CodeSecurity"
+      },
+      {
+        "command": "lomoCodeSecurity.scanWorkspaceFolders",
+        "title": "Scan Workspace Folders…",
+        "category": "CodeSecurity"
+      },
+      {
+        "command": "lomoCodeSecurity.scanRootFolder",
+        "title": "Scan Workspace with Lomo CodeSecurity",
+        "category": "CodeSecurity",
+        "icon": "$(folder-active)"
+      },
+      {
+        "command": "lomoCodeSecurity.scanFolder",
+        "title": "Scan Folder with Lomo CodeSecurity",
+        "category": "CodeSecurity"
+      },
+      {
+        "command": "lomoCodeSecurity.scanFile",
+        "title": "Scan File with Lomo CodeSecurity",
+        "category": "CodeSecurity"
+      },
+      {
+        "command": "lomoCodeSecurity.refreshFindings",
+        "title": "Refresh Findings",
+        "category": "CodeSecurity"
+      },
+      {
+        "command": "lomoCodeSecurity.openFinding",
+        "title": "Open Finding in Web",
+        "category": "CodeSecurity",
+        "icon": "$(browser)"
+      },
+      {
+        "command": "lomoCodeSecurity.revealFinding",
+        "title": "Reveal Finding in Editor",
+        "category": "CodeSecurity",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "lomoCodeSecurity.setLifecycle",
+        "title": "Change Finding Lifecycle",
+        "category": "CodeSecurity"
+      },
+      {
+        "command": "lomoCodeSecurity.runAdvisor",
+        "title": "Run Advisor",
+        "category": "CodeSecurity"
+      },
+      {
+        "command": "lomoCodeSecurity.rescanFile",
+        "title": "Rescan Exact Finding File",
+        "category": "CodeSecurity"
+      },
+      {
+        "command": "lomoCodeSecurity.deleteFinding",
+        "title": "Delete Finding",
+        "category": "CodeSecurity",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "lomoCodeSecurity.reopenInRemoteWsl",
+        "title": "Reopen Workspace in Remote WSL",
+        "category": "CodeSecurity"
+      },
+      {
+        "command": "lomoCodeSecurity.gettingStarted",
+        "title": "Get Started",
+        "category": "CodeSecurity"
+      },
+      {
+        "command": "lomoCodeSecurity.selectRepositories",
+        "title": "Choose repositories in this workspace…",
+        "category": "CodeSecurity"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "lomoCodeSecurity",
+          "title": "CodeSecurity",
+          "icon": "media/lomo-view.svg"
+        }
+      ]
+    },
+    "views": {
+      "lomoCodeSecurity": [
+        {
+          "id": "lomoCodeSecurity.findings",
+          "name": "Findings"
+        }
+      ]
+    },
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "lomoCodeSecurity.scanFolder",
+          "when": "isWorkspaceTrusted && (explorerResourceIsRoot || explorerResourceIsFolder) && (resourceScheme == file || (resourceScheme == vscode-remote && remoteName == wsl))",
+          "group": "lomoCodeSecurity@1"
+        },
+        {
+          "command": "lomoCodeSecurity.scanFile",
+          "when": "isWorkspaceTrusted && !explorerResourceIsRoot && !explorerResourceIsFolder && resourceFilename =~ /^(Dockerfile.*|.*\\.Dockerfile|\\.env(\\.local|\\.production)?|.*\\.(py|js|jsx|ts|tsx|go|rs|java|rb|php|cs|sh|bash|zsh|yaml|yml|json|toml|tf|ini|cfg))$/i && (resourceScheme == file || (resourceScheme == vscode-remote && remoteName == wsl))",
+          "group": "lomoCodeSecurity@1"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "lomoCodeSecurity.addBrowser",
+          "when": "view == lomoCodeSecurity.findings",
+          "group": "navigation@9"
+        },
+        {
+          "command": "workbench.action.addRootFolder",
+          "when": "isWorkspaceTrusted && view == lomoCodeSecurity.findings",
+          "group": "workspace@1"
+        },
+        {
+          "command": "lomoCodeSecurity.scanRootFolder",
+          "when": "isWorkspaceTrusted && view == workbench.explorer.fileView",
+          "group": "navigation@10"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "lomoCodeSecurity.scanRootFolder",
+          "when": "false"
+        },
+        {
+          "command": "lomoCodeSecurity.scanFolder",
+          "when": "false"
+        },
+        {
+          "command": "lomoCodeSecurity.scanFile",
+          "when": "false"
+        },
+        {
+          "command": "lomoCodeSecurity.openFinding",
+          "when": "false"
+        },
+        {
+          "command": "lomoCodeSecurity.revealFinding",
+          "when": "false"
+        },
+        {
+          "command": "lomoCodeSecurity.setLifecycle",
+          "when": "false"
+        },
+        {
+          "command": "lomoCodeSecurity.runAdvisor",
+          "when": "false"
+        },
+        {
+          "command": "lomoCodeSecurity.rescanFile",
+          "when": "false"
+        },
+        {
+          "command": "lomoCodeSecurity.deleteFinding",
+          "when": "false"
+        },
+        {
+          "command": "lomoCodeSecurity.reopenInRemoteWsl",
+          "when": "isWindows"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "lomoCodeSecurity.revealFinding",
+          "when": "isWorkspaceTrusted && view == lomoCodeSecurity.findings && viewItem == lomoCodeSecurity.finding",
+          "group": "inline@1"
+        },
+        {
+          "command": "lomoCodeSecurity.openFinding",
+          "when": "isWorkspaceTrusted && view == lomoCodeSecurity.findings && viewItem == lomoCodeSecurity.finding",
+          "group": "inline@2"
+        },
+        {
+          "command": "lomoCodeSecurity.openFinding",
+          "when": "view == lomoCodeSecurity.findings && viewItem == lomoCodeSecurity.finding",
+          "group": "lomoCodeSecurity@1"
+        },
+        {
+          "command": "lomoCodeSecurity.setLifecycle",
+          "when": "view == lomoCodeSecurity.findings && viewItem == lomoCodeSecurity.finding",
+          "group": "lomoCodeSecurity@2"
+        },
+        {
+          "command": "lomoCodeSecurity.runAdvisor",
+          "when": "view == lomoCodeSecurity.findings && viewItem == lomoCodeSecurity.finding",
+          "group": "lomoCodeSecurity@3"
+        },
+        {
+          "command": "lomoCodeSecurity.rescanFile",
+          "when": "isWorkspaceTrusted && view == lomoCodeSecurity.findings && viewItem == lomoCodeSecurity.finding",
+          "group": "lomoCodeSecurity@4"
+        },
+        {
+          "command": "lomoCodeSecurity.deleteFinding",
+          "when": "view == lomoCodeSecurity.findings && viewItem == lomoCodeSecurity.finding",
+          "group": "lomoCodeSecurity@9"
+        }
+      ],
+      "scm/repository": [
+        {
+          "command": "lomoCodeSecurity.protectPushes",
+          "when": "isWorkspaceTrusted && scmProvider == git",
+          "group": "lomoCodeSecurity@1"
+        },
+        {
+          "command": "lomoCodeSecurity.checkOutgoingCommits",
+          "when": "isWorkspaceTrusted && scmProvider == git",
+          "group": "lomoCodeSecurity@2"
+        }
+      ],
+      "scm/sourceControl": [
+        {
+          "command": "lomoCodeSecurity.protectPushes",
+          "when": "isWorkspaceTrusted && scmProvider == git",
+          "group": "lomoCodeSecurity@1"
+        },
+        {
+          "command": "lomoCodeSecurity.checkOutgoingCommits",
+          "when": "isWorkspaceTrusted && scmProvider == git",
+          "group": "lomoCodeSecurity@2"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Lomo CodeSecurity",
+      "properties": {
+        "lomoCodeSecurity.apiBaseUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:8080",
+          "description": "Loopback origin for the CodeSecurity control plane. Changing it requires connecting this VS Code profile again."
+        },
+        "lomoCodeSecurity.inlineAnnotations": {
+          "type": "string",
+          "enum": [
+            "off",
+            "compact",
+            "detailed"
+          ],
+          "default": "compact",
+          "description": "Controls visible-editor finding annotations. Diagnostics in Problems remain available in every mode."
+        }
+      }
+    },
+    "viewsWelcome": [
+      {
+        "view": "lomoCodeSecurity.findings",
+        "when": "isWorkspaceTrusted && workspaceFolderCount == 0",
+        "contents": "[Get Started](command:lomoCodeSecurity.gettingStarted)\nStart with a folder in this editor workspace.\n[Add Folder to Workspace…](command:workbench.action.addRootFolder)\nAdding a folder changes editor membership only. Scanner access, project registration and scanning are separate steps.\n[Open Dashboard](command:lomoCodeSecurity.openDashboard)\nUse Projects in the dashboard to review source access and setup."
+      },
+      {
+        "view": "lomoCodeSecurity.findings",
+        "when": "isWorkspaceTrusted && workspaceFolderCount != 0",
+        "contents": "[Get Started](command:lomoCodeSecurity.gettingStarted)\nReview existing results or choose the exact folders to scan.\n[Refresh Findings](command:lomoCodeSecurity.refreshFindings)\n[Choose repositories in this workspace…](command:lomoCodeSecurity.selectRepositories)\n[Scan Workspace Folders…](command:lomoCodeSecurity.scanWorkspaceFolders)\n[Add Folder to Workspace…](command:workbench.action.addRootFolder)\nAdding a folder only changes this editor workspace. Review source access and registered projects in the dashboard.\n[Open Dashboard](command:lomoCodeSecurity.openDashboard)"
+      },
+      {
+        "view": "lomoCodeSecurity.findings",
+        "when": "!isWorkspaceTrusted",
+        "contents": "[Get Started](command:lomoCodeSecurity.gettingStarted)\nTrust this workspace before CodeSecurity reads or scans source.\n[Manage Workspace Trust](command:workbench.trust.manage)"
+      }
+    ],
+    "walkthroughs": [
+      {
+        "id": "setup",
+        "title": "Start with useful findings",
+        "description": "Six steps from a local backend to reviewed findings and deliberate push protection. Checkmarks record past progress; current status is rechecked before every action.",
+        "steps": [
+          {
+            "id": "backend",
+            "title": "Start backend",
+            "description": "Start the backend from your reviewed source checkout, then check the connection. The extension does not install Docker or run setup commands for you.\n[Check backend](command:lomoCodeSecurity.gettingStarted)",
+            "media": {
+              "markdown": "media/setup-backend.md"
+            },
+            "completionEvents": [
+              "onContext:lomoCodeSecurity.setup.backend"
+            ]
+          },
+          {
+            "id": "connection",
+            "title": "Connect and trust",
+            "description": "Connect this profile and review VS Code Workspace Trust. A new profile may need approval from an existing owner; a returning profile keeps its membership.\n[Connect / Review IDE Access](command:lomoCodeSecurity.pair)\n[Review Workspace Trust](command:workbench.trust.manage)",
+            "media": {
+              "markdown": "media/setup-connection.md"
+            },
+            "completionEvents": [
+              "onContext:lomoCodeSecurity.setup.connection"
+            ]
+          },
+          {
+            "id": "repositories",
+            "title": "Choose repositories",
+            "description": "Keep your workspace parent open and select the individual repositories beneath it. Selection is local context; scanner authorization and project registration remain separate.\n[Choose repositories…](command:lomoCodeSecurity.selectRepositories)",
+            "media": {
+              "markdown": "media/setup-repositories.md"
+            },
+            "completionEvents": [
+              "onContext:lomoCodeSecurity.setup.repositories"
+            ]
+          },
+          {
+            "id": "scan",
+            "title": "Prepare and scan",
+            "description": "In the dashboard, prepare all scanners. Then select repositories to scan. Each repository has its own job and gate; incomplete coverage never counts as a passing scan.\n[Open dashboard](command:lomoCodeSecurity.openDashboard)\n[Scan repositories…](command:lomoCodeSecurity.scanWorkspaceFolders)",
+            "media": {
+              "markdown": "media/setup-scan.md"
+            },
+            "completionEvents": [
+              "onContext:lomoCodeSecurity.setup.scan"
+            ]
+          },
+          {
+            "id": "review",
+            "title": "Review findings",
+            "description": "Use the Findings view or Problems to inspect a result. Open Finding in Web shows its exact detail; Open Source goes to the validated file and location.\n[Show findings](command:lomoCodeSecurity.refreshFindings)",
+            "media": {
+              "markdown": "media/setup-review.md"
+            },
+            "completionEvents": [
+              "onContext:lomoCodeSecurity.setup.review"
+            ]
+          },
+          {
+            "id": "protection",
+            "title": "Choose protection",
+            "description": "Review your repository’s gate in the dashboard. Protect Pushes applies the chosen On or Off setting to this exact clone after approval. A saved policy alone does not install a hook.\n[Protect Pushes…](command:lomoCodeSecurity.protectPushes)",
+            "media": {
+              "markdown": "media/setup-protection.md"
+            },
+            "completionEvents": [
+              "onContext:lomoCodeSecurity.setup.protection"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p ./tsconfig.json",
+    "build": "node ./scripts/build.mjs",
+    "build:test": "node ./scripts/build-test.mjs",
+    "compile": "npm run typecheck && npm run build",
+    "watch": "node ./scripts/build.mjs --watch",
+    "package": "node ./scripts/package.mjs",
+    "test:activation": "npm run build && node --test ./test/performance/activation.test.js",
+    "test:package:reproducible": "node --test ./test/package/reproducible.test.js",
+    "test:unit": "npm run build:test && node --test ./test/unit/*.test.js",
+    "test:package": "npm run package && npm run test:package:reproducible"
+  },
+  "devDependencies": {
+    "@types/node": "26.1.0",
+    "@types/vscode": "1.95.0",
+    "@vscode/test-electron": "2.5.2",
+    "@vscode/vsce": "3.9.2",
+    "esbuild-wasm": "0.25.9",
+    "playwright-core": "1.61.1",
+    "typescript": "6.0.3",
+    "yauzl": "3.4.0",
+    "yazl": "2.5.1"
+  },
+  "overrides": {
+    "brace-expansion": "5.0.12",
+    "fast-uri": "3.1.8",
+    "js-yaml": "4.3.2",
+    "qs": "6.16.0",
+    "undici": "7.29.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lomolabs/lomo-codesecurity.git"
+  },
+  "homepage": "https://github.com/lomolabs/lomo-codesecurity",
+  "bugs": {
+    "url": "https://github.com/lomolabs/lomo-codesecurity/issues"
+  }
+}

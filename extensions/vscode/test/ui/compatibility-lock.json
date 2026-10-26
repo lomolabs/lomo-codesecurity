@@ -1,0 +1,77 @@
+{
+  "schema": "lomo-vscode-compatibility-lock/v1",
+  "cache_ttl_seconds": 604800,
+  "extensions": [
+    {
+      "name": "gitlens",
+      "identity": "eamodio.gitlens@19.0.1",
+      "version": "19.0.1",
+      "publisher": "eamodio",
+      "bytes": 5338679,
+      "sha256": "e94ea831b059cb3bfda346b94e9c9826a6dd8eb9da54edc170f618a6c866ff60",
+      "asset_url": "https://github.com/gitkraken/vscode-gitlens/releases/download/v19.0.1/gitlens-19.0.1.vsix",
+      "release_url": "https://github.com/gitkraken/vscode-gitlens/releases/tag/v19.0.1",
+      "published_at": "2026-08-13T04:45:29Z"
+    },
+    {
+      "name": "remote-wsl",
+      "identity": "ms-vscode-remote.remote-wsl@0.104.3",
+      "version": "0.104.3",
+      "publisher": "ms-vscode-remote",
+      "vscode_engine": "^1.104.0",
+      "bytes": 1620273,
+      "sha256": "22534172b809daa91b26d34ea2764692e24760bf07a3b1156f61e56cc8a6c4af",
+      "asset_url": "https://marketplace.visualstudio.com/_apis/public/gallery/publishers/ms-vscode-remote/vsextensions/remote-wsl/0.104.3/vspackage",
+      "release_url": "https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-wsl"
+    },
+    {
+      "name": "eslint",
+      "publisher": "dbaeumer",
+      "version": "3.0.34",
+      "identity": "dbaeumer.vscode-eslint@3.0.34",
+      "sha256": "ca708f1739dee184b858d8d04a61a4cbe7b621a13748bc63e859232b22cf700b",
+      "asset_url": "https://dbaeumer.gallerycdn.vsassets.io/extensions/dbaeumer/vscode-eslint/3.0.34/1784203161508/Microsoft.VisualStudio.Services.VSIXPackage",
+      "release_url": "https://marketplace.visualstudio.com/items?itemName=dbaeumer.vscode-eslint",
+      "published_at": "2026-07-16T12:04:19.623Z",
+      "bytes": 267124,
+      "vscode_engine": "^1.90.0",
+      "extension_kind": [
+        "workspace"
+      ],
+      "license": "MIT"
+    },
+    {
+      "name": "error-lens",
+      "publisher": "usernamehw",
+      "version": "3.29.0",
+      "identity": "usernamehw.errorlens@3.29.0",
+      "sha256": "90af40c69dad314199ff4e15b4be61ce0df9cef9d12231e99e6089b7d3a11d0f",
+      "asset_url": "https://usernamehw.gallerycdn.vsassets.io/extensions/usernamehw/errorlens/3.29.0/1790436149293/Microsoft.VisualStudio.Services.VSIXPackage",
+      "release_url": "https://marketplace.visualstudio.com/items?itemName=usernamehw.errorlens",
+      "published_at": "2026-09-26T15:28:09.29Z",
+      "bytes": 62677,
+      "vscode_engine": "^1.107.0",
+      "extension_kind": [
+        "ui",
+        "workspace"
+      ],
+      "license": "MIT"
+    },
+    {
+      "name": "prettier",
+      "publisher": "esbenp",
+      "version": "12.4.0",
+      "identity": "esbenp.prettier-vscode@12.4.0",
+      "sha256": "fb730ea4306d09cdc0a3aaa9e9baae28058cc97a4fbfce8b056b377a0639a9fe",
+      "bytes": 3643663,
+      "asset_url": "https://github.com/prettier/prettier-vscode/releases/download/v12.4.0/prettier-vscode-12.4.0.vsix",
+      "release_url": "https://github.com/prettier/prettier-vscode/releases/tag/v12.4.0",
+      "published_at": "2026-03-16T19:14:21Z",
+      "vscode_engine": "^1.101.0",
+      "extension_kind": [
+        "workspace"
+      ],
+      "license": "MIT"
+    }
+  ]
+}

@@ -1,0 +1,468 @@
+name: ${COMPOSE_PROJECT_NAME:?run make init}
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-kodesec}
+      POSTGRES_USER: ${POSTGRES_USER:-kodesec}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run make init}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    networks:
+      - private
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kodesec} -d ${POSTGRES_DB:-kodesec}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  scanner:
+    image: ${KODESEC_SCANNER_IMAGE:?run make init}
+    pull_policy: never
+    build:
+      context: .
+      dockerfile: services/scanner/Dockerfile
+      args:
+        KODESEC_SOURCE_KIND: ${KODESEC_SOURCE_KIND:-git}
+        KODESEC_SOURCE_DIGEST: ${KODESEC_SOURCE_DIGEST:-}
+        KODESEC_SOURCE_COMMIT: ${KODESEC_SOURCE_COMMIT:-}
+        KODESEC_SOURCE_TREE: ${KODESEC_SOURCE_TREE:-}
+        TRIVY_VERSION: ${TRIVY_VERSION:-0.73.0}
+        GITLEAKS_VERSION: ${GITLEAKS_VERSION:-8.30.1}
+        GRYPE_VERSION: ${GRYPE_VERSION:-0.117.0}
+        SYFT_VERSION: ${SYFT_VERSION:-1.51.0}
+        BEARER_VERSION: ${BEARER_VERSION:-2.1.0+lomo.1}
+        TRUFFLEHOG_VERSION: ${TRUFFLEHOG_VERSION:-3.96.0}
+        OPENGREP_VERSION: ${OPENGREP_VERSION:-1.27.0}
+        CHECKOV_VERSION: ${CHECKOV_VERSION:-3.3.10}
+        SCANNER_BUILD_PLATFORM: ${KODESEC_PREPARATION_PLATFORM:-mac}
+    environment:
+      KODESEC_ALLOWED_ROOTS: ${KODESEC_ALLOWED_ROOTS:?run make init},/data/source-snapshots/generations
+      KODESEC_MAX_FILES: "5000"
+      KODESEC_MAX_FILE_BYTES: "1048576"
+      KODESEC_ARTIFACT_DIR: /data/artifacts
+      KODESEC_SOURCE_SNAPSHOT_DIR: /data/source-snapshots
+      KODESEC_SCRATCH_DIR: /run/kodesec-scratch
+      KODESEC_TOOL_CACHE_DIR: /data/tool-cache
+      KODESEC_SCAN_PLATFORM: ${KODESEC_PREPARATION_PLATFORM:-mac}
+      KODESEC_EXTERNAL_TOOL_TIMEOUT: ${KODESEC_EXTERNAL_TOOL_TIMEOUT:-300}
+      KODESEC_EXTERNAL_TOOL_NICE: ${KODESEC_EXTERNAL_TOOL_NICE:-10}
+    init: true
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: ${SCANNER_CPUS:-2.0}
+    mem_limit: ${SCANNER_MEMORY_LIMIT:-4g}
+    pids_limit: ${SCANNER_PIDS_LIMIT:-512}
+    tmpfs:
+      - /run/kodesec-scratch:rw,nosuid,nodev,size=512m,uid=1000,gid=1000,mode=0700
+      - /tmp:rw,nosuid,nodev,noexec,size=64m,uid=1000,gid=1000,mode=0700
+    volumes:
+      - artifacts:/data/artifacts
+      - type: volume
+        source: source_snapshots
+        target: /data/source-snapshots
+        read_only: true
+      - type: volume
+        source: scanner_cache
+        target: /data/tool-cache
+        read_only: true
+        volume:
+          nocopy: true
+      - type: bind
+        source: ${KODESEC_REPO_ROOT:?run make init}
+        target: ${KODESEC_REPO_ROOT:?run make init}
+        read_only: true
+        bind:
+          create_host_path: false
+    networks:
+      - private
+    # The source-blind writer seeds ownership of a new cache volume once.
+    # Concurrent Docker copy-up from two images can fail before either starts.
+    depends_on:
+      scanner-updater:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8091/healthz', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  scanner-updater:
+    image: ${KODESEC_SCANNER_IMAGE:?run make init}
+    pull_policy: never
+    command: ["uvicorn", "kodesec_scanner.updater_main:app", "--host", "0.0.0.0", "--port", "8092"]
+    environment:
+      KODESEC_TOOL_CACHE_DIR: /data/tool-cache
+      KODESEC_UPDATER_SCRATCH_DIR: /run/kodesec-updater
+      KODESEC_TOOL_LOCK_PATH: /usr/local/share/kodesec/locks/scanner-tools.lock.json
+      KODESEC_RULES_LOCK_PATH: /usr/local/share/kodesec/locks/scanner-rules.lock.json
+      KODESEC_UPDATER_MAX_ACTIVE: "1"
+      KODESEC_UPDATER_SHUTDOWN_WAIT_SECONDS: "10"
+    init: true
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # A source-blind Grype v6 import transiently holds the compressed archive,
+    # staging database, and final database.  The qualification envelope is
+    # deliberately separate from the scanner and must not default to 1 GiB.
+    cpus: ${SCANNER_UPDATER_CPUS:-2.0}
+    mem_limit: ${SCANNER_UPDATER_MEMORY_LIMIT:-4g}
+    memswap_limit: ${SCANNER_UPDATER_MEMORY_LIMIT:-4g}
+    pids_limit: ${SCANNER_UPDATER_PIDS_LIMIT:-256}
+    tmpfs:
+      - /run/kodesec-updater:rw,nosuid,nodev,noexec,size=256m,uid=1000,gid=1000,mode=0700
+      - /tmp:rw,nosuid,nodev,noexec,size=32m,uid=1000,gid=1000,mode=0700
+    volumes:
+      - scanner_cache:/data/tool-cache
+    networks:
+      - updater-control
+      - updater-egress
+    healthcheck:
+      test: ["CMD", "python", "-c", "import json,sys,urllib.request; data=json.load(urllib.request.urlopen('http://127.0.0.1:8092/healthz', timeout=2)); sys.exit(0 if data.get('ok') else 1)"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  schema-init:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      args:
+        KODESEC_SOURCE_KIND: ${KODESEC_SOURCE_KIND:-git}
+        KODESEC_SOURCE_DIGEST: ${KODESEC_SOURCE_DIGEST:-}
+        KODESEC_SOURCE_COMMIT: ${KODESEC_SOURCE_COMMIT:-}
+        KODESEC_SOURCE_TREE: ${KODESEC_SOURCE_TREE:-}
+    image: ${KODESEC_CONTROL_IMAGE:?run make init}
+    environment:
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-kodesec}:${POSTGRES_PASSWORD:?run make init}@postgres:5432/${POSTGRES_DB:-kodesec}
+      KODESEC_ARTIFACT_DIR: /data/artifacts
+    command: ["python", "-m", "kodesec_api.schema_init"]
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=32m,uid=1000,gid=1000,mode=0700
+    volumes:
+      - artifacts:/data/artifacts
+    depends_on:
+      postgres:
+        condition: service_healthy
+      # The scanner image seeds the shared artifact directory's non-root owner
+      # before the control image mounts that otherwise-empty volume.
+      scanner:
+        condition: service_started
+    networks:
+      - private
+    restart: "no"
+
+  api:
+    image: ${KODESEC_CONTROL_IMAGE:?run make init}
+    pull_policy: never
+    environment:
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-kodesec}:${POSTGRES_PASSWORD:?run make init}@postgres:5432/${POSTGRES_DB:-kodesec}
+      SCANNER_URL: http://scanner:8091
+      SCANNER_UPDATER_URL: http://scanner-updater:8092
+      KODESEC_INSTALLATION_ID: ${KODESEC_INSTALLATION_ID:?run make init}
+      KODESEC_INSTALLATION_SECRET: ${KODESEC_INSTALLATION_SECRET:?run make init}
+      KODESEC_BOOTSTRAP_TOKEN: ${KODESEC_BOOTSTRAP_TOKEN:?run make init}
+      KODESEC_CONTROL_ORIGINS: http://127.0.0.1:${CONTROL_PORT:-8080}
+      KODESEC_INTERNAL_HOSTS: api:8080,127.0.0.1:8080
+      KODESEC_STATIC_DIR: /app/static
+      KODESEC_AI_MODE: ${KODESEC_AI_MODE:-auto}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      KODESEC_OLLAMA_ALLOWED_HOSTS: ${KODESEC_OLLAMA_ALLOWED_HOSTS:-}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:8b}
+      OLLAMA_MODEL_DIGEST: ${OLLAMA_MODEL_DIGEST:-}
+      KODESEC_OLLAMA_THINKING: ${KODESEC_OLLAMA_THINKING:-false}
+      KODESEC_AUTO_TRIAGE_LIMIT: ${KODESEC_AUTO_TRIAGE_LIMIT:-5}
+      KODESEC_ADVISOR_DIRECT_HOSTS: ${KODESEC_ADVISOR_DIRECT_HOSTS:-}
+      KODESEC_ADVISOR_SSH_PROVIDER_IDS: ${KODESEC_ADVISOR_SSH_PROVIDER_IDS:-}
+      KODESEC_PREPARATION_PLATFORM: ${KODESEC_PREPARATION_PLATFORM:-mac}
+      KODESEC_SCANNER_TOOLS_TIMEOUT: ${KODESEC_SCANNER_TOOLS_TIMEOUT:-45}
+      KODESEC_ARTIFACT_DIR: /data/artifacts
+      KODESEC_ALLOWED_ROOTS: ${KODESEC_ALLOWED_ROOTS:?run make init}
+      KODESEC_SOURCE_SNAPSHOT_DIR: /data/source-snapshots
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=160m,uid=1000,gid=1000,mode=0700
+    volumes:
+      - artifacts:/data/artifacts
+      - source_snapshots:/data/source-snapshots
+    networks:
+      - private
+      - ingress-control
+      - component-observation
+      - updater-control
+    depends_on:
+      schema-init:
+        condition: service_completed_successfully
+      scanner:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-I", "-m", "kodesec_api.http_health"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  api-ingress:
+    image: ${KODESEC_CONTROL_IMAGE:?run make init}
+    pull_policy: never
+    command:
+      - python
+      - -I
+      - -m
+      - kodesec_api.ingress
+      - --listen-host
+      - 0.0.0.0
+      - --listen-port
+      - "8080"
+      - --target-host
+      - api
+      - --target-port
+      - "8080"
+    ports:
+      - "127.0.0.1:${CONTROL_PORT:-8080}:8080"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: ${API_INGRESS_CPUS:-0.25}
+    mem_limit: ${API_INGRESS_MEMORY_LIMIT:-64m}
+    pids_limit: ${API_INGRESS_PIDS_LIMIT:-32}
+    user: "1000:1000"
+    ulimits:
+      nofile:
+        soft: 256
+        hard: 256
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=16m,uid=1000,gid=1000,mode=0700
+    networks:
+      - ingress-control
+      - ingress-egress
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-I", "-m", "kodesec_api.http_health"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  worker:
+    image: ${KODESEC_CONTROL_IMAGE:?run make init}
+    pull_policy: never
+    command: ["python", "-m", "kodesec_api.worker"]
+    environment:
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-kodesec}:${POSTGRES_PASSWORD:?run make init}@postgres:5432/${POSTGRES_DB:-kodesec}
+      SCANNER_URL: http://scanner:8091
+      SCANNER_UPDATER_URL: http://scanner-updater:8092
+      KODESEC_AI_MODE: ${KODESEC_AI_MODE:-auto}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      KODESEC_OLLAMA_ALLOWED_HOSTS: ${KODESEC_OLLAMA_ALLOWED_HOSTS:-}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:8b}
+      OLLAMA_MODEL_DIGEST: ${OLLAMA_MODEL_DIGEST:-}
+      KODESEC_OLLAMA_THINKING: ${KODESEC_OLLAMA_THINKING:-false}
+      KODESEC_AUTO_TRIAGE_LIMIT: ${KODESEC_AUTO_TRIAGE_LIMIT:-5}
+      KODESEC_ADVISOR_CONNECTOR_URL: http://advisor-connector:8093
+      KODESEC_ADVISOR_DIRECT_HOSTS: ${KODESEC_ADVISOR_DIRECT_HOSTS:-}
+      KODESEC_ADVISOR_SSH_PROVIDER_IDS: ${KODESEC_ADVISOR_SSH_PROVIDER_IDS:-}
+      KODESEC_ADVISOR_GRANT_SECRET: ${KODESEC_ADVISOR_GRANT_SECRET:?run make init}
+      KODESEC_ARTIFACT_DIR: /data/artifacts
+      KODESEC_ALLOWED_ROOTS: ${KODESEC_ALLOWED_ROOTS:?run make init}
+      KODESEC_SOURCE_SNAPSHOT_DIR: /data/source-snapshots
+      KODESEC_WORKER_LEASE_SECONDS: ${KODESEC_WORKER_LEASE_SECONDS:-30}
+      KODESEC_WORKER_HEARTBEAT_SECONDS: ${KODESEC_WORKER_HEARTBEAT_SECONDS:-10}
+      KODESEC_WORKER_POLL_SECONDS: ${KODESEC_WORKER_POLL_SECONDS:-0.5}
+      KODESEC_WORKER_LIVENESS_SECONDS: ${KODESEC_WORKER_LIVENESS_SECONDS:-10}
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: ${WORKER_CPUS:-0.5}
+    mem_limit: ${WORKER_MEMORY_LIMIT:-256m}
+    pids_limit: ${WORKER_PIDS_LIMIT:-64}
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=32m,uid=1000,gid=1000,mode=0700
+    volumes:
+      - artifacts:/data/artifacts
+      - type: volume
+        source: source_snapshots
+        target: /data/source-snapshots
+        read_only: true
+    networks:
+      - private
+      - updater-control
+      - advisor-control
+    depends_on:
+      schema-init:
+        condition: service_completed_successfully
+      scanner:
+        condition: service_healthy
+      scanner-updater:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-m", "kodesec_api.worker_health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  advisor-connector:
+    image: ${KODESEC_CONTROL_IMAGE:?run make init}
+    pull_policy: never
+    command: ["uvicorn", "advisor_connector.app:app", "--host", "0.0.0.0", "--port", "8093", "--no-access-log"]
+    environment:
+      KODESEC_ADVISOR_AUTH_DIR: /run/kodesec-advisor-auth
+      KODESEC_ADVISOR_LOCAL_URL: http://host.docker.internal:11434
+      KODESEC_ADVISOR_DIRECT_HOSTS: ${KODESEC_ADVISOR_DIRECT_HOSTS:-}
+      KODESEC_ADVISOR_GRANT_SECRET: ${KODESEC_ADVISOR_GRANT_SECRET:?run make init}
+    user: "${KODESEC_HOST_UID:-1000}:${KODESEC_HOST_GID:-1000}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: ${ADVISOR_CONNECTOR_CPUS:-0.5}
+    mem_limit: ${ADVISOR_CONNECTOR_MEMORY_LIMIT:-192m}
+    pids_limit: ${ADVISOR_CONNECTOR_PIDS_LIMIT:-64}
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=16m,uid=${KODESEC_HOST_UID:-1000},gid=${KODESEC_HOST_GID:-1000},mode=0700
+    volumes:
+      - type: bind
+        source: ${KODESEC_ADVISOR_AUTH_DIR:?run make init}
+        target: /run/kodesec-advisor-auth
+        read_only: true
+    networks:
+      - advisor-control
+      - advisor-egress
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8093/healthz', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  gitea:
+    image: ${GITEA_IMAGE:-gitea/gitea:1.23-rootless}
+    profiles: ["git-proxy"]
+    environment:
+      GITEA__server__ROOT_URL: http://localhost:3000/
+      GITEA__server__SSH_DOMAIN: localhost
+      GITEA__server__SSH_PORT: "2222"
+      GITEA__server__START_SSH_SERVER: "true"
+      GITEA__service__DISABLE_REGISTRATION: "true"
+      GITEA__security__INSTALL_LOCK: "true"
+      GITEA__security__SECRET_KEY: ${GITEA_SECRET_KEY:?run make init}
+      GITEA__security__INTERNAL_TOKEN: ${GITEA_INTERNAL_TOKEN:?run make init}
+      GITEA__database__DB_TYPE: sqlite3
+    ports:
+      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:2222:2222"
+    volumes:
+      - gitea_data:/var/lib/gitea
+      - gitea_config:/etc/gitea
+    networks:
+      - control
+      - component-observation
+
+  prometheus:
+    image: ${PROMETHEUS_IMAGE:-prom/prometheus:v2.55.1}
+    profiles: ["monitoring"]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - private
+      - control
+    depends_on:
+      api:
+        condition: service_healthy
+
+  grafana:
+    image: ${GRAFANA_IMAGE:-grafana/grafana:11.4.0}
+    profiles: ["monitoring"]
+    ports:
+      - "127.0.0.1:3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?run make init}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      - control
+      - component-observation
+    depends_on:
+      - prometheus
+
+  adminer:
+    image: ${ADMINER_IMAGE:-adminer:4.8.1}
+    profiles: ["db-admin"]
+    ports:
+      - "127.0.0.1:8082:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    networks:
+      - private
+      - control
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+networks:
+  private:
+    internal: true
+  updater-control:
+    internal: true
+  updater-egress:
+  advisor-control:
+    internal: true
+  advisor-egress:
+  ingress-control:
+    internal: true
+  # Lets the API observe optional-service health without joining their
+  # Internet-capable control network or exposing Postgres/scanner peers.
+  component-observation:
+    internal: true
+  ingress-egress:
+  control:
+
+volumes:
+  pg_data:
+  artifacts:
+  source_snapshots:
+  scanner_cache:
+  gitea_data:
+  gitea_config:
+  prometheus_data:
+  grafana_data:

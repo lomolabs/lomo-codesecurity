@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vulnerable-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vulnerable-demo
+  template:
+    metadata:
+      labels:
+        app: vulnerable-demo
+    spec:
+      securityContext:
+        runAsNonRoot: false
+      containers:
+        - name: app
+          image: vulnerable-demo:latest
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: host-root
+              mountPath: /host
+      volumes:
+        - name: host-root
+          hostPath:
+            path: /
+            type: Directory

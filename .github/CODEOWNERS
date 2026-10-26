@@ -1,0 +1,14 @@
+# Review routing only. This file does not install branch-protection rules.
+# @lomolabs must retain repository write access for ownership to be effective.
+# A sole maintainer cannot approve their own pull request; do not configure a
+# required self-approval rule. Add another eligible reviewer before requiring it.
+/.github/ @lomolabs
+/SECURITY.md @lomolabs
+/docs/SECURITY.md @lomolabs
+/docs/RELEASE_STATUS.md @lomolabs
+/LICENSE @lomolabs
+/Makefile @lomolabs
+/scanner-tools.lock.json @lomolabs
+/scripts/ @lomolabs
+/extensions/vscode/scripts/package.mjs @lomolabs
+/services/scanner/licenses/ @lomolabs

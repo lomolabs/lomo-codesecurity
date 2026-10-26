@@ -1,0 +1,5 @@
+# The scanner project itself is supplied separately to `uv pip compile`.
+# This direct immutable wheel reference locks Checkov before its full dependency
+# graph is resolved and hash-pinned in build-requirements.lock.
+setuptools==75.6.0
+checkov @ https://files.pythonhosted.org/packages/84/f6/febd883c86b841392b91737be1a40da53cd6a6de0013c4ff38c91c9ea8b7/checkov-3.3.10-py3-none-any.whl#sha256=5923565b2d29f6932011e1f479a78cb46fa6aede3110919a8f2028fb5318cbdc

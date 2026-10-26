@@ -1,0 +1,25 @@
+name: ${COMPOSE_PROJECT_NAME:?set a unique Compose project name}
+
+services:
+  postgres:
+    image: ${KODESEC_TEST_POSTGRES_IMAGE:-postgres:16-alpine}
+    pull_policy: missing
+    user: "70:70"
+    environment:
+      POSTGRES_DB: kodesec_test
+      POSTGRES_USER: kodesec_test
+      POSTGRES_PASSWORD: ${KODESEC_TEST_POSTGRES_PASSWORD:?generate an isolated test password}
+    ports:
+      - "127.0.0.1:${KODESEC_TEST_POSTGRES_PORT:?select an unused test port}:5432"
+    tmpfs:
+      - /var/lib/postgresql/data:rw,nosuid,nodev,noexec,size=512m,uid=70,gid=70,mode=0700
+      - /tmp:rw,nosuid,nodev,noexec,size=32m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kodesec_test -d kodesec_test"]
+      interval: 1s
+      timeout: 2s
+      retries: 30

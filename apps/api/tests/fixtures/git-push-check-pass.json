@@ -1,0 +1,25 @@
+{
+  "plan": {
+    "schema": "lomo-git-push-plan/v1",
+    "repository_id": "7edcfb58f653d3a635f4a8d71d00a9691321c486e33691ceb4b93d8e936ad339",
+    "object_format": "sha1",
+    "destination_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "advertised_bases": [],
+    "refs": [{"local_ref": "HEAD", "local_oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "remote_ref": "refs/heads/main", "remote_oid": "0000000000000000000000000000000000000000"}],
+    "commits": [{"commit_oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "tree_oid": "d8fe626685bce0d1ddae05d56544d59b8cc92657"}],
+    "trees": ["d8fe626685bce0d1ddae05d56544d59b8cc92657"],
+    "digest": "3a163a51dc498156259e395b73e844412763e4427097150e589cad2a06b1ee46"
+  },
+  "policy_revision": 4,
+  "response": {
+    "repository_id": "7edcfb58f653d3a635f4a8d71d00a9691321c486e33691ceb4b93d8e936ad339",
+    "policy_revision": 4,
+    "plan_digest": "3a163a51dc498156259e395b73e844412763e4427097150e589cad2a06b1ee46",
+    "decision": "pass",
+    "reason_code": null,
+    "missing_trees": [],
+    "scans": [{"tree_oid": "d8fe626685bce0d1ddae05d56544d59b8cc92657", "scan_id": 1, "job_id": 1, "status": "completed", "gate_decision": "pass", "revision": 1, "findings_revision": 1}],
+    "preflight_revision": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "evidence_digest": "1e039b1d6353c905612c4172a851f283760514f61168b3887b12282aef202c66"
+  }
+}

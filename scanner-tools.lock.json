@@ -1,0 +1,583 @@
+{
+  "schema_version": 2,
+  "toolset_id": "kodesec-v0.1-candidate-2026-08-12",
+  "tools": [
+    {
+      "id": "trivy",
+      "version": "0.73.0",
+      "binary": {
+        "provenance": "verified",
+        "source_repository": "https://github.com/aquasecurity/trivy",
+        "version_command": ["trivy", "--version"],
+        "artifacts": [
+          {
+            "platform": "linux/amd64",
+            "kind": "tar.gz",
+            "url": "https://github.com/aquasecurity/trivy/releases/download/v0.73.0/trivy_0.73.0_Linux-64bit.tar.gz",
+            "sha256": "2edd39da482bb4e9831962487b68f68e3928ec3137794757f54d00383d79547b"
+          },
+          {
+            "platform": "linux/arm64",
+            "kind": "tar.gz",
+            "url": "https://github.com/aquasecurity/trivy/releases/download/v0.73.0/trivy_0.73.0_Linux-ARM64.tar.gz",
+            "sha256": "13833d97e8a1a5367471c372a173180157f593bece570e20d5d925fef552f5dd"
+          }
+        ],
+        "license": {
+          "state": "verified",
+          "spdx": "Apache-2.0",
+          "source_ref": "https://raw.githubusercontent.com/aquasecurity/trivy/40c73e5d6166dcc0346a1ab4e94499d1572854e4/LICENSE",
+          "source_sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+          "reason": null
+        }
+      },
+      "adapter": {
+        "output_format": "sarif",
+        "offline_contract": "verified",
+        "arguments": ["trivy", "fs", "--format", "sarif", "--output", "$OUTPUT", "--scanners", "vuln,secret,misconfig", "--cache-dir", "$CACHE", "--offline-scan", "--skip-db-update", "--skip-java-db-update", "--skip-check-update", "--disable-telemetry", "--skip-version-check", "$SOURCE"],
+        "supplemental_arguments": [["trivy", "rootfs", "--format", "sarif", "--output", "$OUTPUT", "--scanners", "vuln", "--pkg-types", "library", "--parallel", "1", "--cache-dir", "$CACHE", "--offline-scan", "--skip-db-update", "--skip-java-db-update", "--skip-check-update", "--disable-telemetry", "--skip-version-check", "$SOURCE"]],
+        "environment": {},
+        "reason": null
+      },
+      "requirements": [
+        {
+          "id": "trivy-db",
+          "kind": "database",
+          "required": true,
+          "provenance": "verified",
+          "cache_subpath": "trivy/db",
+          "source": {
+            "discovery_ref": "ghcr.io/aquasecurity/trivy-db:2",
+            "immutable_ref": "ghcr.io/aquasecurity/trivy-db@sha256:3890e5f98e4bbeb9ca0f7eb7e04f3cc8b12160df33afae6cd8abc5a1ce7cc84d",
+            "kind": "oci",
+            "sha256": "3890e5f98e4bbeb9ca0f7eb7e04f3cc8b12160df33afae6cd8abc5a1ce7cc84d",
+            "size_bytes": 135287491
+          },
+          "max_age_seconds": 1209600,
+          "data_contract": {
+            "kind": "trivy-db-metadata/v2",
+            "publisher_refresh_due_at": "2026-10-24T01:18:09.482141078Z",
+            "publisher_updated_at": "2026-10-23T01:18:09.482141619Z",
+            "schema_version": 2,
+            "timestamp_kind": "intrinsic"
+          },
+          "installed_size_bytes": 1625329807,
+          "installed_content": {
+            "file_count": 1,
+            "hash_algorithm": "kodesec-canonical-tree-v1",
+            "sha256": "f7f492d4cb6e64ad6e7b7b115deddac216a19cd993f433bf5610dc1fe43f5c36",
+            "size_bytes": 1625329664,
+            "volatile_paths": [
+              "metadata.json"
+            ]
+          },
+          "canaries": [
+            {
+              "id": "source-vulnerabilities-positive",
+              "fixture_path": "dependencies/positive",
+              "fixture_kind": "tree",
+              "fixture_hash_algorithm": "kodesec-canonical-tree-v1",
+              "fixture_sha256": "81c57a5eb62e3105e7f9fb90cf6f955e5687aa576c199ca140690d1897c7954e",
+              "output_sha256": "dff42f1a9d49d340ecbfbfca1986140fb296da2cdca853c2e8702727fc012c80",
+              "expected_exit_code": 0,
+              "expected_result_count": 56,
+              "expected_ids": ["CVE-2018-18074", "CVE-2019-11358", "CVE-2019-12308", "CVE-2019-12781", "CVE-2019-14232", "CVE-2019-14233", "CVE-2019-14234", "CVE-2019-14235", "CVE-2019-19118", "CVE-2019-19844", "CVE-2019-20477", "CVE-2020-13254", "CVE-2020-13596", "CVE-2020-14343", "CVE-2020-1747", "CVE-2020-24583", "CVE-2020-24584", "CVE-2020-28500", "CVE-2020-7471", "CVE-2020-9402", "CVE-2021-23337", "CVE-2021-28658", "CVE-2021-31542", "CVE-2021-32052", "CVE-2021-3281", "CVE-2021-33203", "CVE-2021-33571", "CVE-2021-44420", "CVE-2021-45115", "CVE-2021-45116", "CVE-2021-45452", "CVE-2022-22818", "CVE-2022-23833", "CVE-2022-28346", "CVE-2022-28347", "CVE-2022-36359", "CVE-2023-32681", "CVE-2024-35195", "CVE-2024-45231", "CVE-2024-47081", "CVE-2025-13465", "CVE-2025-48432", "CVE-2025-57833", "CVE-2025-64458", "CVE-2025-64459", "CVE-2026-15307", "CVE-2026-15830", "CVE-2026-25645", "CVE-2026-2950", "CVE-2026-4800", "CVE-2026-48587", "CVE-2026-48588", "CVE-2026-53877", "CVE-2026-53878", "CVE-2026-6873", "CVE-2026-8404"]
+            },
+            {
+              "id": "source-vulnerabilities-zero",
+              "fixture_path": "dependencies/zero",
+              "fixture_kind": "tree",
+              "fixture_hash_algorithm": "kodesec-canonical-tree-v1",
+              "fixture_sha256": "b6ba8e76f2c89f0b790bcef3da9e1b210240ecd9de1c6f85a04dc74455b68843",
+              "output_sha256": "5f05c00f91a26d14a70bd2a8e87b7528879130380eac86f687ce81bb8c2a6e6c",
+              "expected_exit_code": 0,
+              "expected_result_count": 0,
+              "expected_ids": []
+            }
+          ],
+          "reason": null
+        },
+        {
+          "id": "trivy-java-db",
+          "kind": "database",
+          "required": true,
+          "provenance": "verified",
+          "cache_subpath": "trivy/java-db",
+          "source": {
+            "discovery_ref": "ghcr.io/aquasecurity/trivy-java-db:1",
+            "immutable_ref": "ghcr.io/aquasecurity/trivy-java-db@sha256:d491eedaab0eb05ffd4eb1a0d90c97112d0f92836ffa9903be15a5f3543c6cfc",
+            "kind": "oci",
+            "sha256": "d491eedaab0eb05ffd4eb1a0d90c97112d0f92836ffa9903be15a5f3543c6cfc",
+            "size_bytes": 987770154
+          },
+          "max_age_seconds": 1209600,
+          "data_contract": {
+            "kind": "trivy-java-db-metadata/v2",
+            "publisher_refresh_due_at": "2026-10-26T01:03:33.619867057Z",
+            "publisher_updated_at": "2026-10-23T01:03:33.619867247Z",
+            "schema_version": 1,
+            "timestamp_kind": "intrinsic"
+          },
+          "installed_size_bytes": 1560596623,
+          "installed_content": {
+            "file_count": 1,
+            "hash_algorithm": "kodesec-canonical-tree-v1",
+            "sha256": "c26d8b1d2f81a8ca970603ca9d7083c1694b8a3be947b3655fc3636b3c5beac2",
+            "size_bytes": 1560596480,
+            "volatile_paths": [
+              "metadata.json"
+            ]
+          },
+          "canaries": [
+            {
+              "id": "java-artifacts-positive",
+              "fixture_path": "trivy/java/log4j-core-2.14.1.jar",
+              "fixture_kind": "file",
+              "fixture_hash_algorithm": "sha256-file-v1",
+              "fixture_sha256": "ade7402a70667a727635d5c4c29495f4ff96f061f12539763f6f123973b465b0",
+              "output_sha256": "0506dd650158351977bfcc150e9ec9e34368d400c152e967369e035ee0b77eeb",
+              "expected_exit_code": 0,
+              "expected_result_count": 7,
+              "expected_ids": ["CVE-2021-44228", "CVE-2021-44832", "CVE-2021-45046", "CVE-2021-45105", "CVE-2025-68161", "CVE-2026-34477", "CVE-2026-34480"]
+            },
+            {
+              "id": "java-artifacts-zero",
+              "fixture_path": "dependencies/zero",
+              "fixture_kind": "tree",
+              "fixture_hash_algorithm": "kodesec-canonical-tree-v1",
+              "fixture_sha256": "b6ba8e76f2c89f0b790bcef3da9e1b210240ecd9de1c6f85a04dc74455b68843",
+              "output_sha256": "86aed016cd0a04628639068fd29dfe76e2ec3057c2aaf90b5aeb88f11c20e269",
+              "expected_exit_code": 0,
+              "expected_result_count": 0,
+              "expected_ids": []
+            }
+          ],
+          "reason": null
+        },
+        {
+          "id": "trivy-checks",
+          "kind": "checks",
+          "required": true,
+          "provenance": "verified",
+          "cache_subpath": "trivy/policy",
+          "source": {
+            "kind": "oci",
+            "discovery_ref": "ghcr.io/aquasecurity/trivy-checks:1",
+            "immutable_ref": "ghcr.io/aquasecurity/trivy-checks@sha256:891abb1e1dc95429e6ad6768a8c8164dacf6d7ff742b940d1d709e69b5855cc6",
+            "sha256": "891abb1e1dc95429e6ad6768a8c8164dacf6d7ff742b940d1d709e69b5855cc6",
+            "size_bytes": 240277
+          },
+          "max_age_seconds": 1209600,
+          "data_contract": {
+            "kind": "trivy-checks-metadata/v1",
+            "major_version": 2,
+            "timestamp_kind": "acquisition-relative"
+          },
+          "installed_size_bytes": 1055090,
+          "installed_content": {
+            "hash_algorithm": "kodesec-canonical-tree-v1",
+            "sha256": "eb9d886d833dbd3bb51adfcb198ae82714e2127b855693abbb16d25a83801c74",
+            "file_count": 641,
+            "size_bytes": 1054940,
+            "volatile_paths": ["metadata.json"]
+          },
+          "canaries": [
+            {
+              "id": "iac-misconfigurations-positive",
+              "fixture_path": "iac/positive",
+              "fixture_kind": "tree",
+              "fixture_hash_algorithm": "kodesec-canonical-tree-v1",
+              "fixture_sha256": "99eacb25c1d7e847ac3215a32f5e09e1f0eef44ee6a8d171338afd0b3342c1a9",
+              "output_sha256": "8094fccb55a38e3002d5fe84f518d6ffbb9a2e6e2e7f1978a4c4858f3d713aa8",
+              "expected_exit_code": 0,
+              "expected_result_count": 25,
+              "expected_ids": ["AWS-0099", "AWS-0107", "AWS-0124", "DS-0002", "DS-0026", "KSV-0001", "KSV-0003", "KSV-0004", "KSV-0011", "KSV-0012", "KSV-0013", "KSV-0014", "KSV-0015", "KSV-0016", "KSV-0017", "KSV-0018", "KSV-0020", "KSV-0021", "KSV-0023", "KSV-0030", "KSV-0104", "KSV-0106", "KSV-0110", "KSV-0118", "KSV-0121"]
+            },
+            {
+              "id": "iac-misconfigurations-zero",
+              "fixture_path": "iac/zero/main.tf",
+              "fixture_kind": "file",
+              "fixture_hash_algorithm": "sha256-file-v1",
+              "fixture_sha256": "cb6a1669543f03d819c52378165d53eeb134f6bb9c2a5279a230896b7594fb6a",
+              "output_sha256": "34bc11e4b2f58f81e43f0ee9d821feffe5b07eef99b5d49bc25e8d46490ea9f9",
+              "expected_exit_code": 0,
+              "expected_result_count": 0,
+              "expected_ids": []
+            }
+          ],
+          "reason": null
+        }
+      ]
+    },
+    {
+      "id": "gitleaks",
+      "version": "8.30.1",
+      "binary": {
+        "provenance": "verified",
+        "source_repository": "https://github.com/gitleaks/gitleaks",
+        "version_command": ["gitleaks", "version"],
+        "artifacts": [
+          {
+            "platform": "linux/amd64",
+            "kind": "tar.gz",
+            "url": "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz",
+            "sha256": "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+          },
+          {
+            "platform": "linux/arm64",
+            "kind": "tar.gz",
+            "url": "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_arm64.tar.gz",
+            "sha256": "e4a487ee7ccd7d3a7f7ec08657610aa3606637dab924210b3aee62570fb4b080"
+          }
+        ],
+        "license": {
+          "state": "verified",
+          "spdx": "MIT",
+          "source_ref": "https://raw.githubusercontent.com/gitleaks/gitleaks/83d9cd684c87d95d656c1458ef04895a7f1cbd8e/LICENSE",
+          "source_sha256": "e3884b252b3bfc045e55be43a34d1e80da070bc6f804ac95bf4660e97d62ebc6",
+          "reason": null
+        }
+      },
+      "adapter": {
+        "output_format": "sarif",
+        "offline_contract": "verified",
+        "arguments": ["gitleaks", "dir", "$SOURCE", "--report-format", "sarif", "--report-path", "$OUTPUT", "--exit-code", "0", "--no-banner"],
+        "environment": {},
+        "reason": null
+      },
+      "requirements": []
+    },
+    {
+      "id": "opengrep",
+      "version": "1.27.0",
+      "binary": {
+        "provenance": "verified",
+        "source_repository": "https://github.com/opengrep/opengrep",
+        "version_command": ["opengrep", "--experimental", "--version"],
+        "artifacts": [
+          {
+            "platform": "linux/amd64",
+            "kind": "executable",
+            "url": "https://github.com/opengrep/opengrep/releases/download/v1.27.0/opengrep_manylinux_x86",
+            "sha256": "9d47d7de3f22ec5a93b25af9126648191e3d3b5d759dd4f699006138724719b3"
+          },
+          {
+            "platform": "linux/arm64",
+            "kind": "executable",
+            "url": "https://github.com/opengrep/opengrep/releases/download/v1.27.0/opengrep_manylinux_aarch64",
+            "sha256": "4efcd2f195da8719f16e4eac79fb918442e04d70f3bcc001fd6105c0afd53aae"
+          }
+        ],
+        "license": {
+          "state": "verified",
+          "spdx": "LGPL-2.1-or-later",
+          "source_ref": "https://raw.githubusercontent.com/opengrep/opengrep/3bd8e95fea8992e15ea2451286dd1cb145e57add/LICENSE",
+          "source_sha256": "20c17d8b8c48a600800dfd14f95d5cb9ff47066a9641ddeab48dc54aec96e331",
+          "reason": null
+        }
+      },
+      "adapter": {
+        "output_format": "sarif",
+        "offline_contract": "verified",
+        "arguments": ["opengrep", "scan", "--config", "$RULES", "--sarif", "--output", "$OUTPUT", "$SOURCE"],
+        "environment": {
+          "SEMGREP_ENABLE_VERSION_CHECK": "0",
+          "SEMGREP_SEND_METRICS": "off"
+        },
+        "reason": null
+      },
+      "requirements": [
+        {
+          "id": "opengrep-reviewed-rules",
+          "kind": "rules",
+          "required": true,
+          "provenance": "verified",
+          "cache_subpath": "opengrep/pack",
+          "source": {
+            "kind": "embedded",
+            "discovery_ref": "/usr/local/share/kodesec/rules/opengrep",
+            "immutable_ref": "kodesec-opengrep-rules@0.1.0",
+            "sha256": "001cd317216c296d29ccc4c86d68d912a5c9ff7b2ea52d6c81b3951bc6588183"
+          },
+          "reason": null
+        }
+      ]
+    },
+    {
+      "id": "bearer",
+      "version": "2.1.0+lomo.1",
+      "binary": {
+        "provenance": "verified",
+        "source_repository": "https://github.com/Bearer/bearer",
+        "version_command": [
+          "bearer",
+          "version"
+        ],
+        "artifacts": [],
+        "license": {
+          "state": "verified",
+          "spdx": "Elastic-2.0",
+          "source_ref": "https://raw.githubusercontent.com/Bearer/bearer/814948ecc198a743b13a75a6bfd4688514285220/LICENSE.txt",
+          "source_sha256": "48255018b41fc0e965b1115af7e6779bc218bb8a6747d561da800d5022622aa2",
+          "reason": null
+        },
+        "source_build": {
+          "kind": "bearer-source-build",
+          "recipe_ref": "repo:services/scanner/bearer/source.lock.json",
+          "recipe_sha256": "ef8e0b3eae1b15634300f4a013fd722e18ce6562802c4794f134ddcdacde8ab2",
+          "output_version": "2.1.0+lomo.1",
+          "platforms": [
+            "linux/amd64",
+            "linux/arm64"
+          ]
+        }
+      },
+      "adapter": {
+        "output_format": "jsonv2",
+        "offline_contract": "verified",
+        "arguments": [
+          "bearer",
+          "scan",
+          "$SOURCE",
+          "--format",
+          "jsonv2",
+          "--output",
+          "$OUTPUT",
+          "--disable-version-check",
+          "--disable-default-rules",
+          "--external-rule-dir",
+          "$RULES"
+        ],
+        "environment": {
+          "BEARER_TELEMETRY_ENABLED": "false"
+        },
+        "reason": null
+      },
+      "requirements": [
+        {
+          "id": "bearer-rules",
+          "kind": "rules",
+          "required": true,
+          "provenance": "verified",
+          "cache_subpath": "bearer/rules",
+          "source": {
+            "kind": "rules-lock",
+            "discovery_ref": "scanner-rules.lock.json#bearer-rules",
+            "immutable_ref": "30a6919acec715bf915ff4704d1b4ffeac998eab",
+            "sha256": "1e58ac09b18435ed53e57fc67f1d31af6c13e17776469a8f1fe8995f40f1a0e1"
+          },
+          "reason": null
+        }
+      ]
+    },
+    {
+      "id": "grype",
+      "version": "0.117.0",
+      "binary": {
+        "provenance": "verified",
+        "source_repository": "https://github.com/anchore/grype",
+        "version_command": ["grype", "version"],
+        "artifacts": [
+          {
+            "platform": "linux/amd64",
+            "kind": "tar.gz",
+            "url": "https://github.com/anchore/grype/releases/download/v0.117.0/grype_0.117.0_linux_amd64.tar.gz",
+            "sha256": "38525dab1e06f162ebaa02f94d82d1f807076b011a44180cf2777edf1a7b9c26"
+          },
+          {
+            "platform": "linux/arm64",
+            "kind": "tar.gz",
+            "url": "https://github.com/anchore/grype/releases/download/v0.117.0/grype_0.117.0_linux_arm64.tar.gz",
+            "sha256": "935f628bdf9331ffdd946931ea5fdb50045d3970ba52670cbeb44a88f127291b"
+          }
+        ],
+        "license": {
+          "state": "verified",
+          "spdx": "Apache-2.0",
+          "source_ref": "https://raw.githubusercontent.com/anchore/grype/b5fa92bbcbef655497e3be840a2f718380e2cdd3/LICENSE",
+          "source_sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+          "reason": null
+        }
+      },
+      "adapter": {
+        "output_format": "sarif",
+        "offline_contract": "verified",
+        "arguments": ["grype", "sbom:$SYFT_SBOM", "-o", "sarif", "--file", "$OUTPUT"],
+        "environment": {
+          "GRYPE_CHECK_FOR_APP_UPDATE": "false",
+          "GRYPE_DB_AUTO_UPDATE": "false",
+          "GRYPE_DB_CACHE_DIR": "$CACHE"
+        },
+        "reason": null
+      },
+      "requirements": [
+        {
+          "id": "grype-db",
+          "kind": "database",
+          "required": true,
+          "provenance": "verified",
+          "cache_subpath": "grype",
+          "source": {
+            "discovery_ref": "https://grype.anchore.io/databases/v6/latest.json",
+            "immutable_ref": "https://grype.anchore.io/databases/v6/vulnerability-db_v6.1.10_2026-10-22T00:29:10Z_1792695081.tar.zst",
+            "kind": "https",
+            "sha256": "d4bd7c4d2a4b3d5937528c11baa735c48003483d5ce50e30bf1135e42e8deb9d",
+            "size_bytes": 194268119
+          },
+          "max_age_seconds": 1209600,
+          "data_contract": {
+            "built_at": "2026-10-22T18:51:21Z",
+            "kind": "grype-db-status/v1",
+            "schema_version": "v6.1.10",
+            "timestamp_kind": "intrinsic"
+          },
+          "installed_size_bytes": 3321077857,
+          "installed_content": {
+            "file_count": 2,
+            "hash_algorithm": "kodesec-grype-v6-logical-tree-v1",
+            "sha256": "63248df05ec2078466c872c8b27968b7a21fb81252450eb5754a30af8a25cf02",
+            "size_bytes": 3321077857,
+            "volatile_paths": []
+          },
+          "canaries": [
+            {
+              "id": "sbom-vulnerabilities-positive",
+              "fixture_path": "dependencies/positive",
+              "fixture_kind": "tree",
+              "fixture_hash_algorithm": "kodesec-canonical-tree-v1",
+              "fixture_sha256": "81c57a5eb62e3105e7f9fb90cf6f955e5687aa576c199ca140690d1897c7954e",
+              "output_sha256": "9ce551d94f7b1493ca7eccaa0027972a9031ad57d09d4850e26dc16e88efb17e",
+              "expected_exit_code": 0,
+              "expected_result_count": 56,
+              "expected_ids": ["GHSA-29mw-wpgm-hmr9", "GHSA-2gwj-7jmv-h26r", "GHSA-2m34-jcjv-45xf", "GHSA-35jh-r3h4-6jhm", "GHSA-3gh2-xw74-jmcw", "GHSA-3h9f-r86x-qvjx", "GHSA-3pqx-4fqf-j49f", "GHSA-53qw-q765-4fww", "GHSA-6757-jp84-gxfx", "GHSA-68w8-qjq3-2gfm", "GHSA-6c3j-c64m-qhgq", "GHSA-6c7v-2f49-8h26", "GHSA-6cw3-g6wv-c2xv", "GHSA-6r97-cj55-9hrq", "GHSA-6w2r-r2m5-xq5w", "GHSA-7rp2-fm2h-wchj", "GHSA-7xr5-9hcq-chf9", "GHSA-8c5j-9r9f-c6w8", "GHSA-8cjm-8mp7-r2xf", "GHSA-8q59-q68h-6hv4", "GHSA-8qcx-xf44-272x", "GHSA-8x94-hmjh-97hq", "GHSA-923m-gv2p-w5qp", "GHSA-95rw-fx8r-36v6", "GHSA-9hjg-9r4m-mvj7", "GHSA-9wx4-h78v-vm56", "GHSA-c4qh-4vgv-qc6g", "GHSA-crhf-3pfg-w68w", "GHSA-f23m-r3pf-42rh", "GHSA-fr28-569j-53c4", "GHSA-frmv-pr5f-9mcr", "GHSA-fvgf-6h6h-3322", "GHSA-gc5v-m9x4-r6x2", "GHSA-h5jv-4p7w-64jg", "GHSA-h7pc-vwp9-298g", "GHSA-hmr4-m2h5-33qx", "GHSA-hvmf-r92r-27hr", "GHSA-j8r2-6x86-q33q", "GHSA-jrh2-hc4r-7jwx", "GHSA-m6gj-h9gm-gw44", "GHSA-p99v-5w3c-jqq9", "GHSA-q238-5cxm-5c9h", "GHSA-qm57-vhq3-3fwf", "GHSA-qw25-v68c-qjf3", "GHSA-r5fr-rjxr-66jc", "GHSA-rrqc-c2jx-6jgv", "GHSA-rxjp-mfm9-w4wr", "GHSA-v6rh-hp5x-86rv", "GHSA-v9qg-3j8p-r63v", "GHSA-vfq6-hq5r-27r6", "GHSA-w24h-v9qh-8gxj", "GHSA-wpjr-j57x-wxfw", "GHSA-wvqv-fj8w-qmhm", "GHSA-x84v-xcm2-53pg", "GHSA-xgxc-v2qg-chmh", "GHSA-xxjr-mmjv-4gpg"]
+            },
+            {
+              "id": "sbom-vulnerabilities-zero",
+              "fixture_path": "dependencies/zero",
+              "fixture_kind": "tree",
+              "fixture_hash_algorithm": "kodesec-canonical-tree-v1",
+              "fixture_sha256": "b6ba8e76f2c89f0b790bcef3da9e1b210240ecd9de1c6f85a04dc74455b68843",
+              "output_sha256": "5465f5a59130d76a36c7966388c4986f00becbeb1285c99c699a6875c4c7996c",
+              "expected_exit_code": 0,
+              "expected_result_count": 0,
+              "expected_ids": []
+            }
+          ],
+          "reason": null
+        }
+      ]
+    },
+    {
+      "id": "checkov",
+      "version": "3.3.10",
+      "binary": {
+        "provenance": "verified",
+        "source_repository": "https://github.com/bridgecrewio/checkov",
+        "version_command": ["checkov", "--version"],
+        "artifacts": [
+          {
+            "platform": "any",
+            "kind": "wheel",
+            "url": "https://files.pythonhosted.org/packages/84/f6/febd883c86b841392b91737be1a40da53cd6a6de0013c4ff38c91c9ea8b7/checkov-3.3.10-py3-none-any.whl",
+            "sha256": "5923565b2d29f6932011e1f479a78cb46fa6aede3110919a8f2028fb5318cbdc"
+          }
+        ],
+        "license": {
+          "state": "verified",
+          "spdx": "Apache-2.0",
+          "source_ref": "https://raw.githubusercontent.com/bridgecrewio/checkov/fb3e4ed6d57555820dbf7b1b02744a356333e2f1/LICENSE",
+          "source_sha256": "ea45084c567928ec4116df7172beba374bbf67bc96c06a38171fafcb49a37510",
+          "reason": null
+        }
+      },
+      "adapter": {
+        "output_format": "sarif",
+        "offline_contract": "verified",
+        "arguments": ["checkov", "-d", "$SOURCE", "--framework", "kubernetes,dockerfile,terraform", "--output", "sarif", "--output-file-path", "$OUTPUT_DIRECTORY", "--skip-download", "--soft-fail"],
+        "environment": {
+          "CHECKOV_SKIP_FRAMEWORK_DOWNLOADS": "true"
+        },
+        "reason": null
+      },
+      "requirements": []
+    },
+    {
+      "id": "trufflehog",
+      "version": "3.96.0",
+      "binary": {
+        "provenance": "verified",
+        "source_repository": "https://github.com/trufflesecurity/trufflehog",
+        "version_command": ["trufflehog", "--version"],
+        "artifacts": [
+          {
+            "platform": "linux/amd64",
+            "kind": "tar.gz",
+            "url": "https://github.com/trufflesecurity/trufflehog/releases/download/v3.96.0/trufflehog_3.96.0_linux_amd64.tar.gz",
+            "sha256": "7105f1cd6577f058a9e39d0578f1a99c8a1e481e4d3512cd8a09acfe22a0fdc0"
+          },
+          {
+            "platform": "linux/arm64",
+            "kind": "tar.gz",
+            "url": "https://github.com/trufflesecurity/trufflehog/releases/download/v3.96.0/trufflehog_3.96.0_linux_arm64.tar.gz",
+            "sha256": "50acd4c7a3b8ebfe5083d8350956057030c44be3515dedd55b45263495c490b2"
+          }
+        ],
+        "license": {
+          "state": "verified",
+          "spdx": "AGPL-3.0-or-later",
+          "source_ref": "https://raw.githubusercontent.com/trufflesecurity/trufflehog/6f3c981e7b77f235fd2702dd74af25fc4b72bf11/LICENSE",
+          "source_sha256": "33d580ea3d93edcb787c2fa826bbf5afcec3058ce4c894a6beaad3eb4f389d2b",
+          "reason": null
+        }
+      },
+      "adapter": {
+        "output_format": "jsonl",
+        "offline_contract": "verified",
+        "arguments": ["trufflehog", "filesystem", "$SOURCE", "--json", "--no-update", "--no-verification"],
+        "environment": {},
+        "reason": null
+      },
+      "requirements": []
+    },
+    {
+      "id": "syft",
+      "version": "1.51.0",
+      "binary": {
+        "provenance": "verified",
+        "source_repository": "https://github.com/anchore/syft",
+        "version_command": ["syft", "version"],
+        "artifacts": [
+          {
+            "platform": "linux/amd64",
+            "kind": "tar.gz",
+            "url": "https://github.com/anchore/syft/releases/download/v1.51.0/syft_1.51.0_linux_amd64.tar.gz",
+            "sha256": "2a2e837a2c8d59ec9af5472ee22d3b04ee463c4e44476ecf993fd1e5ab6ebc7f"
+          },
+          {
+            "platform": "linux/arm64",
+            "kind": "tar.gz",
+            "url": "https://github.com/anchore/syft/releases/download/v1.51.0/syft_1.51.0_linux_arm64.tar.gz",
+            "sha256": "6c0466811541ea03add5213a60a1562f0851e4c0b0ecfdee1a694a9455285900"
+          }
+        ],
+        "license": {
+          "state": "verified",
+          "spdx": "Apache-2.0",
+          "source_ref": "https://raw.githubusercontent.com/anchore/syft/2293641e3bd628a01bb37639318d62c0ebe89b39/LICENSE",
+          "source_sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+          "reason": null
+        }
+      },
+      "adapter": {
+        "output_format": "cyclonedx-json",
+        "offline_contract": "verified",
+        "arguments": ["syft", "dir:$SOURCE", "-o", "cyclonedx-json=$OUTPUT"],
+        "environment": {
+          "SYFT_CHECK_FOR_APP_UPDATE": "false"
+        },
+        "reason": null
+      },
+      "requirements": []
+    }
+  ]
+}

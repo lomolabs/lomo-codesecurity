@@ -1,0 +1,32 @@
+{
+  "version": "2.1.0",
+  "binary": {
+    "provenance": "verified",
+    "source_repository": "https://github.com/Bearer/bearer",
+    "version_command": [
+      "bearer",
+      "version"
+    ],
+    "artifacts": [
+      {
+        "platform": "linux/amd64",
+        "kind": "tar.gz",
+        "url": "https://github.com/Bearer/bearer/releases/download/v2.1.0/bearer_2.1.0_linux_amd64.tar.gz",
+        "sha256": "0bd1129669dbfa2461ba64f2cf99b9cb1fc8c0ca35fb27fdfdf3d3f4146ec7b9"
+      },
+      {
+        "platform": "linux/arm64",
+        "kind": "tar.gz",
+        "url": "https://github.com/Bearer/bearer/releases/download/v2.1.0/bearer_2.1.0_linux_arm64.tar.gz",
+        "sha256": "3bec731fe183881b7999193f5958b80db5e0925a6171083514c160392a2dade4"
+      }
+    ],
+    "license": {
+      "state": "verified",
+      "spdx": "Elastic-2.0",
+      "source_ref": "https://raw.githubusercontent.com/Bearer/bearer/814948ecc198a743b13a75a6bfd4688514285220/LICENSE.txt",
+      "source_sha256": "48255018b41fc0e965b1115af7e6779bc218bb8a6747d561da800d5022622aa2",
+      "reason": null
+    }
+  }
+}

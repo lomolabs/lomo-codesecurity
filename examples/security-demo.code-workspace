@@ -1,0 +1,6 @@
+{
+  "folders": [
+    { "name": "Vulnerable demo", "path": "vulnerable-demo" },
+    { "name": "TerraGoat (scan only)", "path": "third-party/terragoat" }
+  ]
+}

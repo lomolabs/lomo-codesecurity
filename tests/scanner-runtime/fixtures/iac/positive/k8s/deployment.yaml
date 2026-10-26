@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scanner-runtime-acceptance
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: scanner-runtime-acceptance
+  template:
+    metadata:
+      labels:
+        app: scanner-runtime-acceptance
+    spec:
+      containers:
+        - name: app
+          image: acceptance:latest
+          securityContext:
+            privileged: true
+      volumes:
+        - name: host-root
+          hostPath:
+            path: /

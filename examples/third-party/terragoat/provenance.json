@@ -1,0 +1,34 @@
+{
+  "schema": "lomo-source-fixture/v1",
+  "repository": "https://github.com/bridgecrewio/terragoat",
+  "commit": "729f8da62c6a85ce4af5ad3d123de97776d954c4",
+  "license": "Apache-2.0",
+  "purpose": "Source-only static scanning; never execute or deploy",
+  "modifications": "Terraform files have a scan-only warning prepended and one final LF; LICENSE is unchanged.",
+  "files": [
+    {
+      "path": "LICENSE",
+      "upstream_sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+      "size_bytes": 11357
+    },
+    {
+      "path": "terraform/aws/s3.tf",
+      "upstream_sha256": "860ce876f7c4144f560517f16ef46e57b97b2917dc81b6db5ac32594a7ea643e",
+      "sha256": "944e6a073d6080d276ffc8de0e494fc5240de697fd734dfcec11ee729de386eb",
+      "size_bytes": 4963
+    },
+    {
+      "path": "terraform/aws/ecr.tf",
+      "upstream_sha256": "727c87b76cdc42093d46bb1c54219e1db5b7a6fce253358ead09ec0c8aa80da7",
+      "sha256": "230672be66eca8b01cbb758bb0a8e3b5fbaf8ad1bdc1256ba1bbf6b9bd422044",
+      "size_bytes": 1536
+    },
+    {
+      "path": "terraform/aws/consts.tf",
+      "upstream_sha256": "517810c105054c1a64b8e58dafd4edc3ae958fa0416869cc5a64c742ea9c546a",
+      "sha256": "e9b10711d76f8c6842d95b1991db9808b3b96d7bfb9969a3d0b46e696c321838",
+      "size_bytes": 1023
+    }
+  ]
+}

@@ -1,0 +1,2990 @@
+--- a/pkg/languages/python/detectors/object/object.go
++++ b/pkg/languages/python/detectors/object/object.go
+@@ -59,7 +59,7 @@
+ 		(attribute object: (_) @object attribute: (identifier) @field) @root
+ 	]`)
+ 
+-	// user["uuid"]
++	// Capture every repeated key; the projection combines them into one tuple key.
+ 	subscriptQuery := querySet.Add(`
+ 			(subscript value: (_) @object subscript: (_) @key) @root
+ 	`)
+--- a/pkg/languages/python/detectors/object/projection.go
++++ b/pkg/languages/python/detectors/object/projection.go
+@@ -1,6 +1,8 @@
+ package object
+ 
+ import (
++	"errors"
++
+ 	"github.com/bearer/bearer/pkg/scanner/ast/tree"
+ 	"github.com/bearer/bearer/pkg/scanner/detectors/common"
+ 	"github.com/bearer/bearer/pkg/scanner/detectors/types"
+@@ -32,14 +34,15 @@
+ 		return objects, nil
+ 	}
+ 
+-	result, err = detector.subscriptQuery.MatchOnceAt(node)
+-	if err != nil {
+-		return nil, err
+-	}
+-
+-	if result != nil {
+-		objectNode := result["object"]
+-		propertyName := result["key"].Content()
++	// This query intentionally yields one capture per Python subscription key.
++	// Keep generic MatchOnceAt strict; aggregate only this known repeated field.
++	results := detector.subscriptQuery.MatchAt(node)
++	if len(results) != 0 {
++		objectNode := results[0]["object"]
++		propertyName, err := subscriptKey(node, objectNode, results)
++		if err != nil {
++			return nil, err
++		}
+ 		if propertyName == "" {
+ 			return nil, nil
+ 		}
+@@ -71,3 +74,27 @@
+ 
+ 	return ""
+ }
++
++// A comma-separated subscription is one tuple key. Query captures preserve every
++// repeated field; the AST wrapper's FieldName labels only its first occurrence.
++func subscriptKey(node, objectNode *tree.Node, results []tree.QueryResult) (string, error) {
++	start, end := node.ContentEnd.Byte, node.ContentStart.Byte
++	for _, result := range results {
++		key := result["key"]
++		if objectNode == nil || result["object"] != objectNode || key == nil ||
++			key.Tree() != node.Tree() || key.ContentStart.Byte < node.ContentStart.Byte ||
++			key.ContentEnd.Byte > node.ContentEnd.Byte || key.ContentEnd.Byte < key.ContentStart.Byte {
++			return "", errors.New("invalid subscript projection captures")
++		}
++		if key.ContentStart.Byte < start {
++			start = key.ContentStart.Byte
++		}
++		if key.ContentEnd.Byte > end {
++			end = key.ContentEnd.Byte
++		}
++	}
++	if len(results) == 0 {
++		return "", nil
++	}
++	return string(node.Tree().ContentBytes()[start:end]), nil
++}
+--- /dev/null
++++ b/pkg/languages/python/detectors/object/projection_test.go
+@@ -0,0 +1,91 @@
++package object_test
++
++import (
++	"context"
++	"testing"
++
++	"github.com/bearer/bearer/pkg/languages/python"
++	"github.com/bearer/bearer/pkg/languages/python/detectors/object"
++	"github.com/bearer/bearer/pkg/scanner/ast"
++	"github.com/bearer/bearer/pkg/scanner/ast/query"
++	"github.com/bearer/bearer/pkg/scanner/ast/tree"
++	"github.com/bearer/bearer/pkg/scanner/detectors/common"
++	"github.com/bearer/bearer/pkg/scanner/ruleset"
++)
++
++func parseSubscript(t *testing.T, queries *query.Set, expression string) *tree.Node {
++	t.Helper()
++	if err := queries.Compile(); err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(queries.Close)
++	rules, err := ruleset.New("python", nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	parsed, err := ast.ParseAndAnalyze(context.Background(), python.Get(), rules, queries,
++		[]byte("value = "+expression+"\n"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	nodes := parsed.Nodes()
++	for index := range nodes {
++		if nodes[index].Type() == "subscript" && nodes[index].Content() == expression {
++			return &nodes[index]
++		}
++	}
++	t.Fatal("exact subscription expression was not parsed")
++	return nil
++}
++
++func TestSubscriptProjectionPreservesWholeKey(t *testing.T) {
++	for _, tc := range []struct{ expression, objectName, key string }{
++		{`table["email"]`, "table", `"email"`},
++		{`table["email", "token"]`, "table", `"email", "token"`},
++		{`table[a, b, c]`, "table", "a, b, c"},
++		{`table["a,b"]`, "table", `"a,b"`},
++		{`table[lookup["email"], "token"]`, "table", `lookup["email"], "token"`},
++		{`matrix[1:5, ::2]`, "matrix", "1:5, ::2"},
++		{`tuple[str, int]`, "tuple", "str, int"},
++		{`Callable[[tuple[str, int], float], socket.socket]`, "Callable", "[tuple[str, int], float], socket.socket"},
++		// Retain the prior one-key spelling; this change does not redesign
++		// canonicalization of tuple keys with a single trailing comma.
++		{`table["email",]`, "table", `"email"`},
++	} {
++		t.Run(tc.expression, func(t *testing.T) {
++			queries := query.NewSet("python", python.Get().SitterLanguage())
++			detector := object.New(queries)
++			node := parseSubscript(t, queries, tc.expression)
++			// A subscript projection is virtual and must not require another
++			// detector scan. The real parser/query/detector are exercised here.
++			values, err := detector.DetectAt(node, nil)
++			if err != nil {
++				t.Fatal(err)
++			}
++			if len(values) != 1 {
++				t.Fatalf("wanted one complete projection, got %d", len(values))
++			}
++			projected := values[0].(common.Object)
++			if !projected.IsVirtual || len(projected.Properties) != 1 || projected.Properties[0].Name != tc.objectName {
++				t.Fatalf("unexpected projection: %#v", projected)
++			}
++			property := projected.Properties[0].Object
++			if property == nil || property.MatchNode != node {
++				t.Fatal("projection lost its original subscription node")
++			}
++			key := property.Data.(common.Object)
++			if !key.IsVirtual || len(key.Properties) != 1 || key.Properties[0].Name != tc.key {
++				t.Fatalf("tuple key was split, dropped or rewritten: %#v", key)
++			}
++		})
++	}
++}
++
++func TestSubscriptCardinalityGuardRemainsStrict(t *testing.T) {
++	queries := query.NewSet("python", python.Get().SitterLanguage())
++	multiple := queries.Add(`(subscript subscript: (_) @key) @root`)
++	node := parseSubscript(t, queries, "table[first, second]")
++	if _, err := multiple.MatchOnceAt(node); err == nil || err.Error() != "query returned more than one result" {
++		t.Fatalf("generic cardinality guard did not reject multiple matches: %v", err)
++	}
++}
+--- a/pkg/scanner/ast/query/query.go
++++ b/pkg/scanner/ast/query/query.go
+@@ -114,7 +114,7 @@
+ 	var s strings.Builder
+ 
+ 	for _, query := range querySet.queries {
+-		s.WriteString(query.input)
++		s.WriteString(query.compiledInput())
+ 		s.WriteString("\n")
+ 	}
+ 
+@@ -176,6 +176,9 @@
+ 		log.Trace().Msgf("MatchAt: query.id=%d, node id=%d type=%s content=%q", query.id, node.ID, node.Type(), node.Content())
+ 	}
+ 	results := node.QueryResults(query.id)
++	if query.isStatementPair() {
++		results = statementPairs(node, results)
++	}
+ 	if log.Trace().Enabled() {
+ 		if len(results) == 0 {
+ 			log.Trace().Msgf("MatchAt: query.id=%d, node id=%d, found=0 results", query.id, node.ID)
+--- /dev/null
++++ b/pkg/scanner/ast/query/statement_pair.go
+@@ -0,0 +1,44 @@
++package query
++
++import "github.com/bearer/bearer/pkg/scanner/ast/tree"
++
++// This exact generated JavaScript query has one pattern and no predicates or
++// adjacency constraint. Its matches are every ordered pair of named siblings.
++const statementPair = "([(statement_block  [(_)] @param1 [(_)] @param2 @match )(program  [(_)] @param3 [(_)] @param4 @match )] @root)"
++const statementPairCandidates = "([(statement_block (_) @match)(program (_) @match)] @root)"
++
++func (q *Query) isStatementPair() bool {
++	return q.querySet.languageID == "javascript" && q.input == statementPair
++}
++
++func (q *Query) compiledInput() string {
++	if q.isStatementPair() {
++		return statementPairCandidates
++	}
++	return q.input
++}
++
++// Keep only the possible second sibling during AST collection. Materialize
++// the original captures on demand, without caching a quadratic set of pairs.
++func statementPairs(node *tree.Node, candidates []tree.QueryResult) []tree.QueryResult {
++	var results []tree.QueryResult
++	for _, candidate := range candidates {
++		root := candidate["root"]
++		first, second := "param1", "param2"
++		if root.Type() == "program" {
++			first, second = "param3", "param4"
++		}
++		for _, previous := range root.Children() {
++			if previous == node {
++				break
++			}
++			if !previous.IsNamed() || previous.IsError() {
++				continue
++			}
++			results = append(results, tree.QueryResult{
++				"root": root, "match": node, first: previous, second: node,
++			})
++		}
++	}
++	return results
++}
+--- /dev/null
++++ b/pkg/scanner/ast/query/statement_pair_test.go
+@@ -0,0 +1,148 @@
++package query
++
++import (
++	"context"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"reflect"
++	"strings"
++	"testing"
++
++	"github.com/bearer/bearer/pkg/scanner/ast/tree"
++	"github.com/rs/zerolog"
++	sitter "github.com/smacker/go-tree-sitter"
++	"github.com/smacker/go-tree-sitter/typescript/tsx"
++)
++
++func pairFixture(t *testing.T, source string, optimized bool) (*Query, *tree.Tree) {
++	t.Helper()
++	lang := tsx.GetLanguage()
++	p := sitter.NewParser()
++	p.SetLanguage(lang)
++	t.Cleanup(p.Close)
++	parsed, err := p.ParseCtx(context.Background(), nil, []byte(source))
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(parsed.Close)
++	builder := tree.NewBuilder(lang, []byte(source), parsed.RootNode(), 0, nil)
++	set := NewSet("javascript", lang)
++	t.Cleanup(set.Close)
++	// Whitespace leaves the native query identical but bypasses exact admission.
++	input := statementPair
++	if !optimized {
++		input += "\n"
++	}
++	q := set.Add(input)
++	set.Add("(identifier) @root") // subsequent pattern IDs must remain intact
++	if err := set.Compile(); err != nil {
++		t.Fatal(err)
++	}
++	if set.sitterQuery.PatternCount() != 2 {
++		t.Fatal("pattern indexes changed")
++	}
++	if err := set.Query(context.Background(), builder, parsed.RootNode()); err != nil {
++		t.Fatal(err)
++	}
++	return q, builder.Build()
++}
++
++func pairProjection(results []tree.QueryResult) string {
++	rows := make([]map[string]int, len(results))
++	for i, result := range results {
++		rows[i] = map[string]int{}
++		for k, n := range result {
++			rows[i][k] = n.ID
++		}
++	}
++	raw, _ := json.Marshal(rows)
++	return string(raw)
++}
++
++func TestStatementPairsNativeDifferential(t *testing.T) {
++	prior := zerolog.GlobalLevel()
++	zerolog.SetGlobalLevel(zerolog.InfoLevel)
++	t.Cleanup(func() { zerolog.SetGlobalLevel(prior) })
++	samples := []string{"", "a();", "a(); b(); c(); d();", "{a(); b(); c();}", "// top\na(); /*middle*/ b(); // tail\nc();", "function f(){a(); {b(); c();} d();} e();", "const α=1;\n\tconst β=2;", "if (a) {b(); c();} else {d(); e();}", "a(); ; ; b();", "{ a(); ??? b(); }", "const f = () => { a(); b(); }; class X { f(){ a(); b(); } }"}
++	for n := 2; n <= 24; n++ {
++		samples = append(samples, "function f(){"+strings.Repeat("a();\n", n)+"}")
++	}
++	tokens := []string{"a();", "//comment\n", "const b = ;", "???", "/*c*/", ";", "const c = 3;", "function f(){a(); b();}", "if( ){x();}"}
++	for seed := 0; seed < 100; seed++ {
++		var code strings.Builder
++		code.WriteString("{")
++		for j := 0; j < 8; j++ {
++			code.WriteString(tokens[(seed*(j+1)+j*j)%len(tokens)])
++			code.WriteString("\n")
++		}
++		code.WriteString("}")
++		samples = append(samples, code.String())
++	}
++	for i, source := range samples {
++		t.Run(fmt.Sprint(i), func(t *testing.T) {
++			old, a := pairFixture(t, source, false)
++			next, b := pairFixture(t, source, true)
++			if a.NodeCount() != b.NodeCount() {
++				t.Fatal("node count")
++			}
++			for j := range a.Nodes() {
++				x, y := &a.Nodes()[j], &b.Nodes()[j]
++				got, want := pairProjection(next.MatchAt(y)), pairProjection(old.MatchAt(x))
++				if got != want {
++					t.Fatalf("node%d %s got %s want %s", j, x.Type(), got, want)
++				}
++				if pairProjection(x.QueryResults(1)) != pairProjection(y.QueryResults(1)) {
++					t.Fatal("later pattern changed")
++				}
++				r1, e1 := old.MatchOnceAt(x)
++				r2, e2 := next.MatchOnceAt(y)
++				if (e1 == nil) != (e2 == nil) || pairProjection([]tree.QueryResult{r1}) != pairProjection([]tree.QueryResult{r2}) {
++					t.Fatal("cardinality changed")
++				}
++			}
++		})
++	}
++}
++
++func TestStatementPairsExactAdmissionAndCancellation(t *testing.T) {
++	s := NewSet("javascript", tsx.GetLanguage())
++	defer s.Close()
++	q := s.Add(statementPair)
++	if !q.isStatementPair() {
++		t.Fatal("exact rejected")
++	}
++	for _, input := range []string{statementPair + "\n", strings.Replace(statementPair, "param1", "other", 1), strings.Replace(statementPair, " [(_)] @param2", ". [(_)] @param2", 1)} {
++		if s.Add(input).isStatementPair() {
++			t.Fatal("changed accepted")
++		}
++	}
++	other := NewSet("typescript", tsx.GetLanguage())
++	defer other.Close()
++	if other.Add(statementPair).isStatementPair() {
++		t.Fatal("language widened")
++	}
++	c := NewSet("javascript", tsx.GetLanguage())
++	defer c.Close()
++	c.Add(statementPair)
++	if err := c.Compile(); err != nil {
++		t.Fatal(err)
++	}
++	ctx, cancel := context.WithCancel(context.Background())
++	cancel()
++	p := sitter.NewParser()
++	defer p.Close()
++	p.SetLanguage(tsx.GetLanguage())
++	parsed, err := p.ParseCtx(context.Background(), nil, []byte("a(); b();"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer parsed.Close()
++	builder := tree.NewBuilder(tsx.GetLanguage(), []byte("a(); b();"), parsed.RootNode(), 0, nil)
++	if !errors.Is(c.Query(ctx, builder, parsed.RootNode()), context.Canceled) {
++		t.Fatal("cancellation lost")
++	}
++	if !reflect.DeepEqual(q, s.Add(statementPair)) {
++		t.Fatal("dedup changed")
++	}
++}
+--- a/pkg/scanner/ast/tree/builder.go
++++ b/pkg/scanner/ast/tree/builder.go
+@@ -236,7 +236,17 @@
+ 	builder.buildDataflowSources()
+ 	builder.buildAliasOf()
+ 
++	queryPresent := make(map[int]bool)
++	for i := range builder.nodes {
++		for id, results := range builder.nodes[i].queryResults {
++			if len(results) != 0 {
++				queryPresent[id] = true
++			}
++		}
++	}
++
+ 	tree := &Tree{
++		queryPresent:        queryPresent,
+ 		contentBytes:        builder.contentBytes,
+ 		types:               builder.types,
+ 		nodes:               builder.nodes,
+--- /dev/null
++++ b/pkg/scanner/ast/tree/query_results_trace_test.go
+@@ -0,0 +1,46 @@
++package tree
++
++import (
++	"bytes"
++	"io"
++	"strings"
++	"testing"
++
++	"github.com/rs/zerolog"
++	"github.com/rs/zerolog/log"
++)
++
++func TestQueryResultsTraceGuardPreservesResultsAndMissDiagnostic(t *testing.T) {
++	priorLogger, priorLevel := log.Logger, zerolog.GlobalLevel()
++	defer func() {
++		log.Logger = priorLogger
++		zerolog.SetGlobalLevel(priorLevel)
++	}()
++
++	result := QueryResult{"match": nil}
++	node := &Node{
++		tree:         &Tree{types: []string{"identifier"}},
++		queryResults: map[int][]QueryResult{7: {result}},
++	}
++	log.Logger = zerolog.New(io.Discard).Level(zerolog.Disabled)
++	zerolog.SetGlobalLevel(zerolog.Disabled)
++	if got := node.QueryResults(7); len(got) != 1 || got[0] == nil {
++		t.Fatal("existing query result changed")
++	}
++	if got := node.QueryResults(42); got != nil {
++		t.Fatal("missing query must return nil")
++	}
++	if allocations := testing.AllocsPerRun(1000, func() { _ = node.QueryResults(42) }); allocations != 0 {
++		t.Fatalf("disabled trace miss allocated %.1f times", allocations)
++	}
++
++	var output bytes.Buffer
++	log.Logger = zerolog.New(&output).Level(zerolog.TraceLevel)
++	zerolog.SetGlobalLevel(zerolog.TraceLevel)
++	if got := node.QueryResults(42); got != nil {
++		t.Fatal("traced missing query must return nil")
++	}
++	if !strings.Contains(output.String(), "QueryResults: queryID=42 not found on node=identifier, available IDs=[7]") {
++		t.Fatalf("trace miss diagnostic changed: %q", output.String())
++	}
++}
+--- a/pkg/scanner/ast/tree/tree.go
++++ b/pkg/scanner/ast/tree/tree.go
+@@ -12,6 +12,7 @@
+ )
+ 
+ type Tree struct {
++	queryPresent        map[int]bool
+ 	contentBytes        []byte
+ 	types               []string
+ 	nodes               []Node
+@@ -163,7 +164,7 @@
+ 	}
+ 
+ 	results := node.queryResults[queryID]
+-	if len(results) == 0 {
++	if len(results) == 0 && log.Trace().Enabled() {
+ 		// Log available query IDs for debugging
+ 		availableIDs := make([]int, 0, len(node.queryResults))
+ 		for id := range node.queryResults {
+@@ -327,3 +328,9 @@
+ 
+ 	return visit(node, visitChildren)
+ }
++
++// QueryPresent is a conservative index of collected raw query matches. A lazy
++// query may produce fewer matches, but never matches when its raw set is empty.
++func (tree *Tree) QueryPresent(id int) bool {
++	return tree == nil || tree.queryPresent == nil || tree.queryPresent[id]
++}
+--- a/pkg/scanner/cache/cache.go
++++ b/pkg/scanner/cache/cache.go
+@@ -2,6 +2,7 @@
+ 
+ import (
+ 	"github.com/rs/zerolog/log"
++	"sync/atomic"
+ 
+ 	treepkg "github.com/bearer/bearer/pkg/scanner/ast/tree"
+ 	"github.com/bearer/bearer/pkg/scanner/detectorset"
+@@ -10,9 +11,10 @@
+ )
+ 
+ const (
+-	minNodeCount = 20_000 // minimum number of AST nodes for cache to be enabled
+-	maxCacheSize = 1000   // maximum number of AST nodes per cache/shared-cache
+-	evictionSize = 100    // number of AST nodes to evict when max is reached
++	minNodeCount          = 20_000  // minimum number of AST nodes for cache to be enabled
++	maxCacheSize          = 1000    // maximum number of AST nodes per cache/shared-cache
++	evictionSize          = 100     // number of AST nodes to evict when max is reached
++	maxEmptyScanMemoNodes = 250_000 // one bounded node-ID bitset per active file
+ )
+ 
+ type entry struct {
+@@ -40,9 +42,15 @@
+ }
+ 
+ type Cache struct {
+-	enabled bool
+-	shared  *Shared
+-	data    map[*treepkg.Node][]entry
++	enabled          bool
++	shared           *Shared
++	data             map[*treepkg.Node][]entry
++	tree             *treepkg.Tree
++	emptyScanRule    *ruleset.Rule
++	emptyScanBits    []uint64
++	emptyScanOwner   *detectorset.EmptyScanMemoOwner
++	emptyScanHits    atomic.Uint64
++	emptyScanRecords atomic.Uint64
+ }
+ 
+ func NewCache(tree *treepkg.Tree, sharedCache *Shared) *Cache {
+@@ -55,6 +63,7 @@
+ 		enabled: enabled,
+ 		shared:  sharedCache,
+ 		data:    make(map[*treepkg.Node][]entry),
++		tree:    tree,
+ 	}
+ }
+ 
+@@ -64,6 +73,9 @@
+ 	}
+ 
+ 	clear(cache.data)
++	clear(cache.emptyScanBits)
++	cache.emptyScanRule = nil
++	cache.emptyScanOwner = nil
+ }
+ 
+ func (cache *Cache) Get(node *treepkg.Node, rule *ruleset.Rule) (*detectorset.Result, bool) {
+@@ -96,7 +108,6 @@
+ 				break
+ 			}
+ 
+-			data[evictedNode] = nil
+ 			delete(data, evictedNode)
+ 
+ 			i++
+@@ -116,3 +127,82 @@
+ 		return cache.data
+ 	}
+ }
++
++// emptyScanSlot applies only to the reviewed immutable two-rule pattern
++// closure with no sanitizer. IDs never grant eligibility. General auxiliary
++// rules may have context-dependent recursion and cannot use this memo.
++// The bitset is at most 31,256 bytes; larger trees keep the original path.
++func (cache *Cache) emptyScanSlot(root *treepkg.Node, rule *ruleset.Rule) (int, uint64, bool) {
++	if cache == nil || !cache.enabled || cache.tree == nil || root == nil || rule == nil ||
++		cache.tree.NodeCount() > maxEmptyScanMemoNodes || root.Tree() != cache.tree ||
++		rule.Type() != ruleset.RuleTypeAuxiliary || rule.SanitizerRule() != nil ||
++		!rule.EmptyScanMemoEligible() || root.ID < 0 || root.ID >= cache.tree.NodeCount() {
++		return 0, 0, false
++	}
++	return root.ID / 64, uint64(1) << uint(root.ID%64), true
++}
++
++// EmptyScanCached says a previous complete empty Nested traversal covered
++// this exact node/rule and its reachable closure. The scanner checks scope, context
++// cancellation and active recursion before using the result.
++func (cache *Cache) EmptyScanCached(root *treepkg.Node, rule *ruleset.Rule, owner *detectorset.EmptyScanMemoOwner) bool {
++	word, mask, ok := cache.emptyScanSlot(root, rule)
++	hit := ok && owner != nil && cache.emptyScanOwner == owner && cache.emptyScanRule == rule &&
++		word < len(cache.emptyScanBits) && cache.emptyScanBits[word]&mask != 0
++	return hit
++}
++
++func (cache *Cache) RecordEmptyScan(root *treepkg.Node, rule *ruleset.Rule, owner *detectorset.EmptyScanMemoOwner) bool {
++	word, mask, ok := cache.emptyScanSlot(root, rule)
++	if !ok || owner == nil {
++		return false
++	}
++	if cache.emptyScanRule != nil && (cache.emptyScanRule != rule || cache.emptyScanOwner != owner) {
++		return false
++	}
++	if cache.emptyScanBits == nil {
++		cache.emptyScanBits = make([]uint64, (cache.tree.NodeCount()+63)/64)
++	}
++	cache.emptyScanRule = rule
++	cache.emptyScanOwner = owner
++	cache.emptyScanBits[word] |= mask
++	cache.emptyScanRecords.Add(1)
++	return true
++}
++
++// EmptyScanMemoCounts exposes bounded, atomic in-process test counters only.
++// They have no runtime configuration, logs, file sink or external protocol.
++// Counts survive Clear, while all reusable bits and their owner are cleared.
++func (cache *Cache) EmptyScanMemoCounts() (hits, records uint64) {
++	if cache == nil {
++		return 0, 0
++	}
++	return cache.emptyScanHits.Load(), cache.emptyScanRecords.Load()
++}
++
++// RecordEmptyScanMemoHit is called only after the scanner accepts a live hit.
++func (cache *Cache) RecordEmptyScanMemoHit() {
++	if cache != nil {
++		cache.emptyScanHits.Add(1)
++	}
++}
++
++// PendingEmptyScan records a bounded traversal proof separately from reusable
++// state. Only a complete, empty, live Nested traversal may publish its bits.
++func (cache *Cache) PendingEmptyScan(root *treepkg.Node, rule *ruleset.Rule, owner *detectorset.EmptyScanMemoOwner) []uint64 {
++	if _, _, ok := cache.emptyScanSlot(root, rule); !ok || owner == nil {
++		return nil
++	}
++	return make([]uint64, (cache.tree.NodeCount()+63)/64)
++}
++
++func (cache *Cache) RecordEmptyScanClosure(root *treepkg.Node, rule *ruleset.Rule, owner *detectorset.EmptyScanMemoOwner, visited []uint64) bool {
++	if cache == nil || cache.tree == nil || len(visited) != (cache.tree.NodeCount()+63)/64 ||
++		!cache.RecordEmptyScan(root, rule, owner) {
++		return false
++	}
++	for i, word := range visited {
++		cache.emptyScanBits[i] |= word
++	}
++	return true
++}
+--- /dev/null
++++ b/pkg/scanner/cache/cache_eviction_test.go
+@@ -0,0 +1,50 @@
++package cache
++
++import (
++	"testing"
++
++	treepkg "github.com/bearer/bearer/pkg/scanner/ast/tree"
++	"github.com/bearer/bearer/pkg/scanner/detectorset"
++	"github.com/bearer/bearer/pkg/scanner/ruleset"
++)
++
++func TestCacheEvictionPreservesBoundAndResults(t *testing.T) {
++	rule := ruleset.BuiltinDatatypeRule
++	c := &Cache{enabled: true, shared: NewShared(nil), data: make(map[*treepkg.Node][]entry)}
++	result := &detectorset.Result{}
++	nodes := make([]*treepkg.Node, maxCacheSize+2)
++	for i := range nodes {
++		nodes[i] = &treepkg.Node{}
++		c.Put(nodes[i], rule, result)
++	}
++	if got, want := len(c.data), maxCacheSize+2-evictionSize; got != want {
++		t.Fatalf("cache nodes after eviction = %d, want %d", got, want)
++	}
++	if got, ok := c.Get(nodes[len(nodes)-1], rule); !ok || got != result {
++		t.Fatal("newest result was not retained")
++	}
++	retained := 0
++	for _, node := range nodes {
++		got, ok := c.Get(node, rule)
++		if ok {
++			retained++
++			if got != result {
++				t.Fatal("retained result changed")
++			}
++			if entries := c.data[node]; len(entries) != 1 {
++				t.Fatal("retained entry changed")
++			}
++		}
++	}
++	if retained != len(c.data) {
++		t.Fatalf("retained results = %d, map nodes = %d", retained, len(c.data))
++	}
++	c.Put(nodes[len(nodes)-1], rule, result)
++	if entries := c.data[nodes[len(nodes)-1]]; len(entries) != 2 {
++		t.Fatal("same-node append changed")
++	}
++	c.Clear()
++	if len(c.data) != 0 {
++		t.Fatal("clear retained entries")
++	}
++}
+--- a/pkg/scanner/detectors/customrule/customrule.go
++++ b/pkg/scanner/detectors/customrule/customrule.go
+@@ -3,9 +3,11 @@
+ import (
+ 	"fmt"
+ 
++	"github.com/rs/zerolog"
+ 	"github.com/rs/zerolog/log"
+ 
+ 	"github.com/bearer/bearer/pkg/scanner/ast/query"
++	"github.com/bearer/bearer/pkg/scanner/ast/traversalstrategy"
+ 	"github.com/bearer/bearer/pkg/scanner/ast/tree"
+ 	detectortypes "github.com/bearer/bearer/pkg/scanner/detectors/types"
+ 	"github.com/bearer/bearer/pkg/scanner/language"
+@@ -54,7 +56,7 @@
+ 			return nil, fmt.Errorf("error compiling pattern: %s", err)
+ 		}
+ 
+-		filter, err := translateFiltersTop(ruleSet, variableShapeSet, variableShapeSet.Shape(rule), pattern.Filters)
++		filter, err := translatePatternFiltersTop(ruleSet, variableShapeSet, variableShapeSet.Shape(rule), pattern.Filters)
+ 		if err != nil {
+ 			return nil, err
+ 		}
+@@ -81,7 +83,7 @@
+ 	node *tree.Node,
+ 	detectorContext detectortypes.Context,
+ ) ([]interface{}, error) {
+-	if log.Trace().Enabled() {
++	if zerolog.GlobalLevel() <= zerolog.TraceLevel && log.Trace().Enabled() {
+ 		log.Trace().Msgf("DetectAt: rule=%s, node=%s", detector.rule.ID(), node.Debug())
+ 	}
+ 	var detectionsData []interface{}
+@@ -92,7 +94,7 @@
+ 			return nil, err
+ 		}
+ 
+-		if log.Trace().Enabled() {
++		if zerolog.GlobalLevel() <= zerolog.TraceLevel && log.Trace().Enabled() {
+ 			if len(results) != 0 {
+ 				log.Trace().Msgf("pattern %s matched (without filters) at node=%s", pattern.Query.ID(), node.Debug())
+ 			} else {
+@@ -106,7 +108,9 @@
+ 				return nil, err
+ 			}
+ 			if filterResult == nil || len(filterResult.Matches()) == 0 {
+-				log.Trace().Msg("filters didn't match")
++				if zerolog.GlobalLevel() <= zerolog.TraceLevel {
++					log.Trace().Msg("filters didn't match")
++				}
+ 				continue
+ 			}
+ 
+@@ -119,7 +123,7 @@
+ 				})
+ 			}
+ 
+-			if log.Trace().Enabled() {
++			if zerolog.GlobalLevel() <= zerolog.TraceLevel && log.Trace().Enabled() {
+ 				log.Trace().Msgf("filters matched for %s at %s", pattern.Query.ID(), node.Debug())
+ 			}
+ 		}
+@@ -127,3 +131,39 @@
+ 
+ 	return detectionsData, nil
+ }
++
++// PatternsAbsent accepts raw-query absence, or an outer conjunction whose
++// first filter references a proven-empty rule through its definitely bound
++// root variable. Later filters are unreachable in that case. Unknown/nested
++// filters and possibly absent variables remain on the original path.
++func (detector *Detector) PatternsAbsent(source *tree.Tree, absent func(*ruleset.Rule) bool) bool {
++	if len(detector.patterns) == 0 {
++		return false
++	}
++	boundReference := false
++	for _, pattern := range detector.patterns {
++		if patternquery.AbsentFromTree(pattern.Query, source) {
++			continue
++		}
++		variable := patternquery.BoundRootVariable(pattern.Query)
++		outer, ok := pattern.Filter.(*filters.PatternAll)
++		if variable == nil || !ok || outer == nil || outer.All == nil || len(outer.Children) == 0 {
++			return false
++		}
++		ref, ok := outer.Children[0].(*filters.Rule)
++		if !ok || ref == nil || ref.Variable != variable {
++			return false
++		}
++		scope := ref.TraversalStrategy
++		if scope != traversalstrategy.Nested && scope != traversalstrategy.NestedStrict && scope != traversalstrategy.Result && scope != traversalstrategy.Cursor && scope != traversalstrategy.CursorStrict {
++			return false
++		}
++		if !absent(ref.Rule) {
++			return false
++		}
++		boundReference = true
++	}
++	// Keep auxiliary admission tied to the reviewed bound-reference proof;
++	// plain raw-query absence is used only for shared rules.
++	return detector.rule.Type() == ruleset.RuleTypeShared || boundReference
++}
+--- a/pkg/scanner/detectors/customrule/filter.go
++++ b/pkg/scanner/detectors/customrule/filter.go
+@@ -25,6 +25,19 @@
+ 	}
+ 
+ 	return &filters.All{Children: children}, nil
++}
++
++func translatePatternFiltersTop(
++	ruleSet *ruleset.Set,
++	variableShapeSet *variableshape.Set,
++	variableShape *variableshape.Shape,
++	sourceFilters []settings.PatternFilter,
++) (filters.Filter, error) {
++	children, err := translateFilters(ruleSet, variableShapeSet, variableShape, sourceFilters)
++	if err != nil {
++		return nil, err
++	}
++	return &filters.PatternAll{All: &filters.All{Children: children}}, nil
+ }
+ 
+ func translateFilters(
+--- a/pkg/scanner/detectors/customrule/filters/filters.go
++++ b/pkg/scanner/detectors/customrule/filters/filters.go
+@@ -122,9 +122,32 @@
+ 	Children []Filter
+ }
+ 
++// PatternAll is the outer conjunction of one compiled pattern. Once one
++// child has no matches, that pattern cannot produce a detection, so later
++// children are not evaluated. Nested All retains its existing unknown/error
++// behavior, including when wrapped by Not or used by a referenced rule.
++type PatternAll struct {
++	*All
++}
++
++func (filter *PatternAll) Evaluate(
++	detectorContext detectortypes.Context,
++	patternVariables variableshape.Values,
++) (*Result, error) {
++	return filter.All.evaluate(detectorContext, patternVariables, true)
++}
++
+ func (filter *All) Evaluate(
+ 	detectorContext detectortypes.Context,
+ 	patternVariables variableshape.Values,
++) (*Result, error) {
++	return filter.evaluate(detectorContext, patternVariables, false)
++}
++
++func (filter *All) evaluate(
++	detectorContext detectortypes.Context,
++	patternVariables variableshape.Values,
++	shortCircuitFirst bool,
+ ) (*Result, error) {
+ 	var matches []Match
+ 
+@@ -146,6 +169,9 @@
+ 
+ 		if i == 0 {
+ 			matches = subResult.matches
++			if shortCircuitFirst && len(matches) == 0 {
++				return NewResult(), nil
++			}
+ 			continue
+ 		}
+ 
+--- /dev/null
++++ b/pkg/scanner/detectors/customrule/filters/pattern_all_test.go
+@@ -0,0 +1,92 @@
++package filters_test
++
++import (
++	"errors"
++	"testing"
++
++	"github.com/bearer/bearer/pkg/scanner/ast/tree"
++	"github.com/bearer/bearer/pkg/scanner/detectors/customrule/filters"
++	detectortypes "github.com/bearer/bearer/pkg/scanner/detectors/types"
++	"github.com/bearer/bearer/pkg/scanner/variableshape"
++)
++
++type countedFilter struct {
++	calls  int
++	result *filters.Result
++	err    error
++}
++
++func (f *countedFilter) Evaluate(_ detectortypes.Context, _ variableshape.Values) (*filters.Result, error) {
++	f.calls++
++	return f.result, f.err
++}
++
++func TestPatternAllSkipsOnlyUnreachableOuterChild(t *testing.T) {
++	first := &countedFilter{result: filters.NewResult()}
++	later := &countedFilter{err: errors.New("unreachable error")}
++	conjunction := &filters.PatternAll{All: &filters.All{Children: []filters.Filter{first, later}}}
++	result, err := conjunction.Evaluate(nil, nil)
++	if err != nil || result == nil || len(result.Matches()) != 0 || first.calls != 1 || later.calls != 0 {
++		t.Fatalf("dead branch still evaluated or altered result: result=%v error=%v calls=%d/%d", result, err, first.calls, later.calls)
++	}
++}
++
++func TestPatternAllPreservesLiveErrorsAndUnknown(t *testing.T) {
++	node := &tree.Node{}
++	live := &countedFilter{result: filters.NewResult(filters.NewMatch(variableshape.Values{node}, "", nil))}
++	want := errors.New("cycle found during rule evaluation")
++	later := &countedFilter{err: want}
++	conjunction := &filters.PatternAll{All: &filters.All{Children: []filters.Filter{live, later}}}
++	if result, err := conjunction.Evaluate(nil, nil); result != nil || !errors.Is(err, want) || later.calls != 1 {
++		t.Fatalf("live branch error suppressed: result=%v error=%v calls=%d", result, err, later.calls)
++	}
++	unknown := &countedFilter{result: nil}
++	later.calls = 0
++	conjunction = &filters.PatternAll{All: &filters.All{Children: []filters.Filter{unknown, later}}}
++	if result, err := conjunction.Evaluate(nil, nil); result != nil || err != nil || later.calls != 0 {
++		t.Fatalf("unknown branch changed: result=%v error=%v calls=%d", result, err, later.calls)
++	}
++}
++
++func TestPatternAllPreservesSharedBindingAndDiscordance(t *testing.T) {
++	node, other := &tree.Node{}, &tree.Node{}
++	first := &countedFilter{result: filters.NewResult(filters.NewMatch(variableshape.Values{node, nil}, "", nil))}
++	second := &countedFilter{result: filters.NewResult(filters.NewMatch(variableshape.Values{nil, node}, "", nil))}
++	conjunction := &filters.PatternAll{All: &filters.All{Children: []filters.Filter{first, second}}}
++	result, err := conjunction.Evaluate(nil, nil)
++	if err != nil || result == nil || len(result.Matches()) != 1 || first.calls != 1 || second.calls != 1 {
++		t.Fatalf("shared binding lost: result=%v error=%v calls=%d/%d", result, err, first.calls, second.calls)
++	}
++	second.result = filters.NewResult(filters.NewMatch(variableshape.Values{other, nil}, "", nil))
++	result, err = conjunction.Evaluate(nil, nil)
++	if err != nil || result == nil || len(result.Matches()) != 0 || second.calls != 2 {
++		t.Fatalf("discordant binding changed: result=%v error=%v calls=%d", result, err, second.calls)
++	}
++}
++
++func TestNestedAllKeepsLaterUnknownAndErrorSemantics(t *testing.T) {
++	first := &countedFilter{result: filters.NewResult()}
++	second := &countedFilter{result: nil}
++	nested := &filters.All{Children: []filters.Filter{first, second}}
++	if result, err := nested.Evaluate(nil, nil); result != nil || err != nil || second.calls != 1 {
++		t.Fatalf("nested unknown changed: result=%v error=%v calls=%d", result, err, second.calls)
++	}
++	want := errors.New("nested error")
++	second.result, second.err = nil, want
++	if result, err := nested.Evaluate(nil, nil); result != nil || !errors.Is(err, want) || second.calls != 2 {
++		t.Fatalf("nested error changed: result=%v error=%v calls=%d", result, err, second.calls)
++	}
++}
++
++func TestPatternAllDoesNotHideOuterCancellationBeforeDeadChild(t *testing.T) {
++	// Cancellation before the outer filter is reached must remain visible.
++	// This filter models a scanner/context guard preceding the dead branch.
++	canceled := errors.New("context canceled")
++	first := &countedFilter{err: canceled}
++	dead := &countedFilter{result: filters.NewResult()}
++	later := &countedFilter{result: filters.NewResult()}
++	conjunction := &filters.PatternAll{All: &filters.All{Children: []filters.Filter{first, dead, later}}}
++	if result, err := conjunction.Evaluate(nil, nil); result != nil || !errors.Is(err, canceled) || first.calls != 1 || dead.calls != 0 || later.calls != 0 {
++		t.Fatalf("reachable cancellation hidden: result=%v error=%v calls=%d/%d/%d", result, err, first.calls, dead.calls, later.calls)
++	}
++}
+--- a/pkg/scanner/detectors/customrule/patternquery/patternquery.go
++++ b/pkg/scanner/detectors/customrule/patternquery/patternquery.go
+@@ -245,3 +245,20 @@
+ 		Variables: variables,
+ 	}
+ }
++
++// AbsentFromTree is false for root-variable and unknown queries. Only an exact
++// compiled AST query with no collected raw match can prove absence.
++func AbsentFromTree(candidate Query, source *tree.Tree) bool {
++	q, ok := candidate.(*query)
++	return ok && q != nil && q.treeQuery != nil && source != nil && !source.QueryPresent(q.treeQuery.ID())
++}
++
++// BoundRootVariable is known to receive the scanned node for every successful
++// root-variable match. Other query forms provide no such proof.
++func BoundRootVariable(candidate Query) *variableshape.Variable {
++	q, ok := candidate.(*rootVariableQuery)
++	if !ok || q == nil {
++		return nil
++	}
++	return q.shapeVariable
++}
+--- /dev/null
++++ b/pkg/scanner/detectors/customrule/query_absence_test.go
+@@ -0,0 +1,24 @@
++package customrule
++
++import (
++	"context"
++	"testing"
++
++	"github.com/bearer/bearer/pkg/scanner/ast/tree"
++	"github.com/bearer/bearer/pkg/scanner/ruleset"
++	sitter "github.com/smacker/go-tree-sitter"
++	"github.com/smacker/go-tree-sitter/javascript"
++)
++
++func TestQueryAbsenceUnknownQueryFallback(t *testing.T) {
++	content := []byte("const value = 1;")
++	parsed, err := sitter.ParseCtx(context.Background(), content, javascript.GetLanguage())
++	if err != nil {
++		t.Fatal(err)
++	}
++	source := tree.NewBuilder(javascript.GetLanguage(), content, parsed, 5, nil).Build()
++	d := &Detector{rule: ruleset.BuiltinDatatypeRule, patterns: []Pattern{{Query: traceGateQuery{matched: true}}}}
++	if d.PatternsAbsent(source, func(*ruleset.Rule) bool { return true }) {
++		t.Fatal("unknown query admitted despite potential matches")
++	}
++}
+--- /dev/null
++++ b/pkg/scanner/detectors/customrule/trace_gate_test.go
+@@ -0,0 +1,88 @@
++package customrule
++
++import (
++	"bytes"
++	"context"
++	"strings"
++	"testing"
++
++	"github.com/rs/zerolog"
++	"github.com/rs/zerolog/log"
++	sitter "github.com/smacker/go-tree-sitter"
++	"github.com/smacker/go-tree-sitter/javascript"
++
++	"github.com/bearer/bearer/pkg/scanner/ast/tree"
++	"github.com/bearer/bearer/pkg/scanner/detectors/customrule/filters"
++	"github.com/bearer/bearer/pkg/scanner/detectors/customrule/patternquery"
++	detectortypes "github.com/bearer/bearer/pkg/scanner/detectors/types"
++	"github.com/bearer/bearer/pkg/scanner/ruleset"
++	"github.com/bearer/bearer/pkg/scanner/variableshape"
++)
++
++type traceGateQuery struct{ matched bool }
++
++func (query traceGateQuery) ID() string { return "fixture[0]" }
++func (query traceGateQuery) MatchAt(node *tree.Node) ([]*patternquery.Result, error) {
++	if !query.matched {
++		return nil, nil
++	}
++	return []*patternquery.Result{{MatchNode: node}}, nil
++}
++func (query traceGateQuery) MatchOnceAt(node *tree.Node) (*patternquery.Result, error) {
++	results, err := query.MatchAt(node)
++	if len(results) == 0 || err != nil {
++		return nil, err
++	}
++	return results[0], nil
++}
++
++type traceGateFilter struct{}
++
++func (traceGateFilter) Evaluate(detectortypes.Context, variableshape.Values) (*filters.Result, error) {
++	return filters.NewResult(filters.NewMatch(nil, "value", nil)), nil
++}
++
++func TestTraceGatePreservesCustomruleMatchAndOutput(t *testing.T) {
++	priorLogger, priorLevel := log.Logger, zerolog.GlobalLevel()
++	defer func() {
++		log.Logger = priorLogger
++		zerolog.SetGlobalLevel(priorLevel)
++	}()
++
++	content := []byte("const value = 1")
++	parsed, err := sitter.ParseCtx(context.Background(), content, javascript.GetLanguage())
++	if err != nil {
++		t.Fatal(err)
++	}
++	node := tree.NewBuilder(javascript.GetLanguage(), content, parsed, 5, nil).Build().RootNode()
++	for _, level := range []struct {
++		name  string
++		value zerolog.Level
++		trace bool
++	}{
++		{"info", zerolog.InfoLevel, false},
++		{"debug", zerolog.DebugLevel, false},
++		{"trace", zerolog.TraceLevel, true},
++	} {
++		t.Run(level.name, func(t *testing.T) {
++			var output bytes.Buffer
++			log.Logger = zerolog.New(&output).Level(zerolog.TraceLevel)
++			zerolog.SetGlobalLevel(level.value)
++			for _, matched := range []bool{false, true} {
++				detector := &Detector{rule: ruleset.BuiltinDatatypeRule, patterns: []Pattern{{
++					Pattern: "fixture", Query: traceGateQuery{matched: matched}, Filter: traceGateFilter{},
++				}}}
++				got, err := detector.DetectAt(node, nil)
++				if err != nil || len(got) != map[bool]int{false: 0, true: 1}[matched] {
++					t.Fatalf("match result changed for matched=%t: %d, %v", matched, len(got), err)
++				}
++			}
++			text := output.String()
++			for _, marker := range []string{"DetectAt: rule=", "did not match", "matched (without filters)", "filters matched"} {
++				if has := strings.Contains(text, marker); has != level.trace {
++					t.Fatalf("trace %q presence = %t, want %t", marker, has, level.trace)
++				}
++			}
++		})
++	}
++}
+--- a/pkg/scanner/detectorset/detectorset.go
++++ b/pkg/scanner/detectorset/detectorset.go
+@@ -4,6 +4,7 @@
+ 	"fmt"
+ 	"slices"
+ 	"strings"
++	"sync/atomic"
+ 
+ 	"github.com/bearer/bearer/pkg/classification/schema"
+ 	"github.com/bearer/bearer/pkg/scanner/ast/query"
+@@ -34,6 +35,8 @@
+ 
+ type detectorSet struct {
+ 	detectors []detectortypes.Detector
++	active    []atomic.Int64
++	memoOwner EmptyScanMemoOwner
+ }
+ 
+ func New(
+@@ -64,6 +67,7 @@
+ 
+ 	return &detectorSet{
+ 		detectors: detectors,
++		active:    make([]atomic.Int64, len(detectors)),
+ 	}, nil
+ }
+ 
+@@ -87,10 +91,12 @@
+ 	}
+ 
+ 	node.ExecutingDetectors = append(node.ExecutingDetectors, rule.Index())
+-	result, err := set.detectSanitized(node, rule, detectorContext)
+-	node.ExecutingDetectors = node.ExecutingDetectors[:len(node.ExecutingDetectors)-1]
+-
+-	return result, err
++	set.active[rule.Index()].Add(1)
++	defer func() {
++		set.active[rule.Index()].Add(-1)
++		node.ExecutingDetectors = node.ExecutingDetectors[:len(node.ExecutingDetectors)-1]
++	}()
++	return set.detectSanitized(node, rule, detectorContext)
+ }
+ 
+ func (set *detectorSet) detectSanitized(
+@@ -110,7 +116,7 @@
+ 	}
+ 
+ 	if len(detectionsData) == 0 {
+-		return &Result{}, nil
++		return nil, nil
+ 	}
+ 
+ 	detections := make([]*detectortypes.Detection, len(detectionsData))
+@@ -142,3 +148,59 @@
+ 
+ 	return len(detections) != 0, nil
+ }
++
++// EmptyScanMemoOwner binds completed empty traversals to one compiled set.
++// The nonzero-sized identity must not alias a different set's memo owner.
++type EmptyScanMemoOwner struct{ identity byte }
++
++// EmptyScanMemoSafety fails closed for wrappers and unknown implementations.
++// Only the real set can prove that both immutable closure members are compiled
++// custom detectors and no execution of either member is active anywhere in the
++// AST. The root's ExecutingDetectors alone cannot detect descendant cycles.
++func EmptyScanMemoSafety(candidate Set, rule *ruleset.Rule) *EmptyScanMemoOwner {
++	set, ok := candidate.(*detectorSet)
++	if !ok || set == nil || !rule.EmptyScanMemoEligible() {
++		return nil
++	}
++	leaf := rule.EmptyScanMemoLeaf()
++	for _, member := range []*ruleset.Rule{rule, leaf} {
++		if member == nil || member.Index() < 0 || member.Index() >= len(set.detectors) ||
++			set.active[member.Index()].Load() != 0 {
++			return nil
++		}
++		compiled, ok := set.detectors[member.Index()].(*customrule.Detector)
++		if !ok || compiled.Rule() != member {
++			return nil
++		}
++	}
++	return &set.memoOwner
++}
++
++// PatternsAbsent uses compiled pattern/filter structure, never rule IDs. The
++// proof is bounded to eight acyclic custom references, with no sanitizer or
++// active member that could produce a cycle error. Unknown shapes fall back.
++func PatternsAbsent(candidate Set, rule *ruleset.Rule, source *tree.Tree) bool {
++	s, ok := candidate.(*detectorSet)
++	if !ok || s == nil || source == nil {
++		return false
++	}
++	var path [8]*ruleset.Rule
++	var absent func(*ruleset.Rule, int) bool
++	absent = func(r *ruleset.Rule, depth int) bool {
++		if depth == len(path) || r == nil || (r.Type() != ruleset.RuleTypeShared && r.Type() != ruleset.RuleTypeAuxiliary) || r.SanitizerRule() != nil || r.Index() < 0 || r.Index() >= len(s.detectors) || s.active[r.Index()].Load() != 0 {
++			return false
++		}
++		for _, prior := range path[:depth] {
++			if prior == r {
++				return false
++			}
++		}
++		d, ok := s.detectors[r.Index()].(*customrule.Detector)
++		if !ok || d == nil || d.Rule() != r {
++			return false
++		}
++		path[depth] = r
++		return d.PatternsAbsent(source, func(child *ruleset.Rule) bool { return absent(child, depth+1) })
++	}
++	return absent(rule, 0)
++}
+--- /dev/null
++++ b/pkg/scanner/detectorset/empty_result_test.go
+@@ -0,0 +1,103 @@
++package detectorset
++
++import (
++	"context"
++	"strings"
++	"sync/atomic"
++	"testing"
++
++	"github.com/bearer/bearer/pkg/commands/process/settings"
++	"github.com/bearer/bearer/pkg/scanner/ast/traversalstrategy"
++	"github.com/bearer/bearer/pkg/scanner/ast/tree"
++	detectortypes "github.com/bearer/bearer/pkg/scanner/detectors/types"
++	"github.com/bearer/bearer/pkg/scanner/ruleset"
++	sitter "github.com/smacker/go-tree-sitter"
++	"github.com/smacker/go-tree-sitter/javascript"
++)
++
++type emptyResultDetector struct {
++	rule  *ruleset.Rule
++	data  []interface{}
++	calls int
++}
++
++func (detector *emptyResultDetector) Rule() *ruleset.Rule { return detector.rule }
++func (detector *emptyResultDetector) DetectAt(*tree.Node, detectortypes.Context) ([]interface{}, error) {
++	detector.calls++
++	return detector.data, nil
++}
++func (detector *emptyResultDetector) DetectExpectedAt(*tree.Node, detectortypes.Context) ([]interface{}, error) {
++	return nil, nil
++}
++
++type emptyResultContext struct{ sanitized bool }
++
++func (ctx emptyResultContext) Filename() string { return "fixture.js" }
++func (ctx emptyResultContext) Scan(node *tree.Node, _ *ruleset.Rule, _ traversalstrategy.Strategy) ([]*detectortypes.Detection, error) {
++	if ctx.sanitized {
++		return []*detectortypes.Detection{{MatchNode: node}}, nil
++	}
++	return nil, nil
++}
++
++func TestEmptyResultMissAndPositiveAndSanitized(t *testing.T) {
++	rules, err := ruleset.New("javascript", map[string]*settings.Rule{
++		"sink":  {Id: "sink", Languages: []string{"javascript"}, SanitizerRuleID: "clean"},
++		"clean": {Id: "clean", Languages: []string{"javascript"}},
++	})
++	if err != nil {
++		t.Fatal(err)
++	}
++	rule, err := rules.RuleByID("sink")
++	if err != nil {
++		t.Fatal(err)
++	}
++	detector := &emptyResultDetector{rule: rule}
++	set := &detectorSet{detectors: make([]detectortypes.Detector, len(rules.Rules())), active: make([]atomic.Int64, len(rules.Rules()))}
++	set.detectors[rule.Index()] = detector
++	node := &tree.Node{}
++
++	got, err := set.DetectAt(node, rule, emptyResultContext{})
++	if err != nil || got != nil || detector.calls != 1 || len(node.ExecutingDetectors) != 0 {
++		t.Fatalf("empty miss changed: result=%v err=%v calls=%d executing=%d", got, err, detector.calls, len(node.ExecutingDetectors))
++	}
++
++	detector.data = []interface{}{"positive"}
++	got, err = set.DetectAt(node, rule, emptyResultContext{})
++	if err != nil || got == nil || got.Sanitized || len(got.Detections) != 1 ||
++		got.Detections[0].RuleID != rule.ID() || got.Detections[0].MatchNode != node ||
++		got.Detections[0].Data != "positive" || detector.calls != 2 {
++		t.Fatalf("positive detection changed: result=%v err=%v calls=%d", got, err, detector.calls)
++	}
++
++	got, err = set.DetectAt(node, rule, emptyResultContext{sanitized: true})
++	if err != nil || got == nil || !got.Sanitized || len(got.Detections) != 0 || detector.calls != 2 {
++		t.Fatalf("sanitized detection changed: result=%v err=%v calls=%d", got, err, detector.calls)
++	}
++}
++
++func TestLiveDetectorCycleRemainsAnError(t *testing.T) {
++	rules, err := ruleset.New("javascript", map[string]*settings.Rule{
++		"sink": {Id: "sink", Languages: []string{"javascript"}},
++	})
++	if err != nil {
++		t.Fatal(err)
++	}
++	rule, err := rules.RuleByID("sink")
++	if err != nil {
++		t.Fatal(err)
++	}
++	detector := &emptyResultDetector{rule: rule}
++	set := &detectorSet{detectors: make([]detectortypes.Detector, len(rules.Rules())), active: make([]atomic.Int64, len(rules.Rules()))}
++	set.detectors[rule.Index()] = detector
++	parsed, err := sitter.ParseCtx(context.Background(), []byte("const value = 1"), javascript.GetLanguage())
++	if err != nil {
++		t.Fatal(err)
++	}
++	node := tree.NewBuilder(javascript.GetLanguage(), []byte("const value = 1"), parsed, 5, nil).Build().RootNode()
++	node.ExecutingDetectors = []int{rule.Index()}
++	got, err := set.DetectAt(node, rule, emptyResultContext{})
++	if got != nil || err == nil || !strings.Contains(err.Error(), "cycle found during rule evaluation") || detector.calls != 0 || len(node.ExecutingDetectors) != 1 {
++		t.Fatalf("live cycle changed: result=%v error=%v calls=%d stack=%v", got, err, detector.calls, node.ExecutingDetectors)
++	}
++}
+--- /dev/null
++++ b/pkg/scanner/detectorset/empty_scan_guard_test.go
+@@ -0,0 +1,66 @@
++package detectorset
++
++import (
++	"testing"
++
++	"github.com/bearer/bearer/pkg/commands/process/settings"
++	"github.com/bearer/bearer/pkg/languages/javascript"
++	"github.com/bearer/bearer/pkg/report/customdetectors"
++	"github.com/bearer/bearer/pkg/scanner/ast/query"
++	"github.com/bearer/bearer/pkg/scanner/ruleset"
++	"github.com/bearer/bearer/pkg/scanner/variableshape"
++)
++
++type unsupportedMemoSet struct{ Set }
++
++func TestEmptyScanGuardActualCompiledIdentityAndAllActiveMembers(t *testing.T) {
++	lang := javascript.Get()
++	rs, err := ruleset.New("javascript", map[string]*settings.Rule{
++		"parent": {Id: "parent", Type: customdetectors.TypeVerifier, Languages: []string{"javascript"}, IsAuxilary: true, Patterns: []settings.RulePattern{{Pattern: "app.use($<SESSION_MIDDLEWARE>)", Filters: []settings.PatternFilter{{Variable: "SESSION_MIDDLEWARE", Detection: "leaf", Scope: settings.RESULT_SCOPE}}}}},
++		"leaf":   {Id: "leaf", Type: customdetectors.TypeVerifier, Languages: []string{"javascript"}, IsAuxilary: true, Patterns: []settings.RulePattern{{Pattern: "session()"}}},
++	})
++	if err != nil {
++		t.Fatal(err)
++	}
++	vs, err := variableshape.NewSet(lang, rs)
++	if err != nil {
++		t.Fatal(err)
++	}
++	qs := query.NewSet(lang.ID(), lang.SitterLanguage())
++	defer qs.Close()
++	compiled, err := New(nil, lang, rs, vs, qs)
++	if err != nil {
++		t.Fatal(err)
++	}
++	parent, err := rs.RuleByID("parent")
++	if err != nil {
++		t.Fatal(err)
++	}
++	leaf := parent.EmptyScanMemoLeaf()
++	if leaf == nil {
++		t.Fatal("missing immutable closure")
++	}
++	if EmptyScanMemoSafety(compiled, parent) == nil {
++		t.Fatal("real compiled closure refused")
++	}
++	if EmptyScanMemoSafety(unsupportedMemoSet{compiled}, parent) != nil || EmptyScanMemoSafety(nil, parent) != nil || EmptyScanMemoSafety(compiled, nil) != nil {
++		t.Fatal("unknown detector set or rule authorized")
++	}
++	actual := compiled.(*detectorSet)
++	for _, member := range []*ruleset.Rule{parent, leaf} {
++		actual.active[member.Index()].Add(1)
++		if EmptyScanMemoSafety(compiled, parent) != nil {
++			t.Fatalf("active member %s authorized", member.ID())
++		}
++		actual.active[member.Index()].Add(-1)
++		if EmptyScanMemoSafety(compiled, parent) == nil {
++			t.Fatal("inactive guard remained blocked")
++		}
++		saved := actual.detectors[member.Index()]
++		actual.detectors[member.Index()] = nil
++		if EmptyScanMemoSafety(compiled, parent) != nil {
++			t.Fatal("missing or unknown compiled member authorized")
++		}
++		actual.detectors[member.Index()] = saved
++	}
++}
+--- /dev/null
++++ b/pkg/scanner/detectorset/query_absence_guard_test.go
+@@ -0,0 +1,93 @@
++package detectorset
++
++import (
++	"context"
++	"fmt"
++	"testing"
++
++	"github.com/bearer/bearer/pkg/commands/process/settings"
++	"github.com/bearer/bearer/pkg/languages/javascript"
++	"github.com/bearer/bearer/pkg/report/customdetectors"
++	"github.com/bearer/bearer/pkg/scanner/ast"
++	"github.com/bearer/bearer/pkg/scanner/ast/query"
++	"github.com/bearer/bearer/pkg/scanner/ast/tree"
++	"github.com/bearer/bearer/pkg/scanner/ruleset"
++	"github.com/bearer/bearer/pkg/scanner/variableshape"
++)
++
++func absenceGraph(t *testing.T, count int, cycle bool, sanitized ...bool) (*detectorSet, *ruleset.Set, *tree.Tree) {
++	t.Helper()
++	input := map[string]*settings.Rule{}
++	for i := 0; i < count; i++ {
++		id := fmt.Sprintf("r%d", i)
++		r := &settings.Rule{Id: id, Languages: []string{"javascript"}, Type: customdetectors.TypeVerifier, IsAuxilary: true}
++		if i == count-1 && !cycle {
++			r.Type = customdetectors.TypeShared
++			r.IsAuxilary = false
++			r.Patterns = []settings.RulePattern{{Pattern: "const { $<!>$<MEMBER> } = $<LIBRARY>"}}
++		} else {
++			r.Patterns = []settings.RulePattern{{Pattern: "$<PATH>", Filters: []settings.PatternFilter{{Variable: "PATH", Detection: fmt.Sprintf("r%d", (i+1)%count), Scope: settings.CURSOR_SCOPE}}}}
++		}
++		input[id] = r
++	}
++	if len(sanitized) != 0 && sanitized[0] {
++		input[fmt.Sprintf("r%d", count-1)].SanitizerRuleID = "r0"
++	}
++	lang := javascript.Get()
++	rs, err := ruleset.New("javascript", input)
++	if err != nil {
++		t.Fatal(err)
++	}
++	vs, err := variableshape.NewSet(lang, rs)
++	if err != nil {
++		t.Fatal(err)
++	}
++	qs := query.NewSet(lang.ID(), lang.SitterLanguage())
++	t.Cleanup(qs.Close)
++	ds, err := New(nil, lang, rs, vs, qs)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := qs.Compile(); err != nil {
++		t.Fatal(err)
++	}
++	source, err := ast.ParseAndAnalyze(context.Background(), lang, rs, qs, []byte("const value = 1;"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	return ds.(*detectorSet), rs, source
++}
++
++func TestQueryAbsenceDepthCycleActiveAndUnknownFences(t *testing.T) {
++	for _, count := range []int{1, 2, 8, 9} {
++		ds, rs, source := absenceGraph(t, count, false)
++		root, _ := rs.RuleByID("r0")
++		if got := PatternsAbsent(ds, root, source); got != (count <= 8) {
++			t.Fatalf("count %d proof=%t", count, got)
++		}
++		if count > 8 {
++			continue
++		}
++		for i := 0; i < count; i++ {
++			rule, _ := rs.RuleByID(fmt.Sprintf("r%d", i))
++			ds.active[rule.Index()].Add(1)
++			if PatternsAbsent(ds, root, source) {
++				t.Fatalf("active reference %d admitted", i)
++			}
++			ds.active[rule.Index()].Add(-1)
++		}
++		if PatternsAbsent(ds, root, nil) || PatternsAbsent(ds, root, &tree.Tree{}) || PatternsAbsent(unsupportedMemoSet{ds}, root, source) {
++			t.Fatal("unknown index/set admitted")
++		}
++	}
++	guarded, guardedRules, guardedSource := absenceGraph(t, 2, false, true)
++	guardedRoot, _ := guardedRules.RuleByID("r0")
++	if PatternsAbsent(guarded, guardedRoot, guardedSource) {
++		t.Fatal("sanitized child admitted")
++	}
++	ds, rs, source := absenceGraph(t, 3, true)
++	root, _ := rs.RuleByID("r0")
++	if PatternsAbsent(ds, root, source) {
++		t.Fatal("cyclic reference proof admitted")
++	}
++}
+--- /dev/null
++++ b/pkg/scanner/rulescanner/empty_scan_safe_differential_test.go
+@@ -0,0 +1,436 @@
++package rulescanner_test
++
++import (
++	"context"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"strings"
++	"testing"
++
++	"github.com/bearer/bearer/pkg/commands/process/settings"
++	"github.com/bearer/bearer/pkg/languages/javascript"
++	"github.com/bearer/bearer/pkg/report/customdetectors"
++	"github.com/bearer/bearer/pkg/scanner/ast"
++	"github.com/bearer/bearer/pkg/scanner/ast/query"
++	"github.com/bearer/bearer/pkg/scanner/ast/traversalstrategy"
++	"github.com/bearer/bearer/pkg/scanner/ast/tree"
++	"github.com/bearer/bearer/pkg/scanner/cache"
++	detectortypes "github.com/bearer/bearer/pkg/scanner/detectors/types"
++	"github.com/bearer/bearer/pkg/scanner/detectorset"
++	"github.com/bearer/bearer/pkg/scanner/rulescanner"
++	"github.com/bearer/bearer/pkg/scanner/ruleset"
++	"github.com/bearer/bearer/pkg/scanner/variableshape"
++	"github.com/rs/zerolog"
++)
++
++// A wrapper gives OFF exactly the same real compiled detectors and normal
++// node cache, while the production guard fails closed for its unknown type.
++type memoOff struct{ detectorset.Set }
++
++type realFixture struct {
++	ast      *tree.Tree
++	rules    *ruleset.Set
++	rule     *ruleset.Rule
++	compiled detectorset.Set
++	scanner  *rulescanner.Scanner
++	memo     *cache.Cache
++}
++
++func realMemoFixture(t *testing.T, ctx context.Context, src string, statements int, off bool, change func(map[string]*settings.Rule)) realFixture {
++	t.Helper()
++	prior := zerolog.GlobalLevel()
++	zerolog.SetGlobalLevel(zerolog.InfoLevel)
++	t.Cleanup(func() { zerolog.SetGlobalLevel(prior) })
++	lang := javascript.Get()
++	input := map[string]*settings.Rule{
++		"parent": {Id: "parent", Type: customdetectors.TypeVerifier, Languages: []string{"javascript"}, IsAuxilary: true, Patterns: []settings.RulePattern{{Pattern: "app.use($<SESSION_MIDDLEWARE>)", Filters: []settings.PatternFilter{{Variable: "SESSION_MIDDLEWARE", Detection: "leaf", Scope: settings.RESULT_SCOPE}}}}},
++		"leaf":   {Id: "leaf", Type: customdetectors.TypeVerifier, Languages: []string{"javascript"}, IsAuxilary: true, Patterns: []settings.RulePattern{{Pattern: "session()"}}},
++	}
++	if change != nil {
++		change(input)
++	}
++	rs, err := ruleset.New("javascript", input)
++	if err != nil {
++		t.Fatal(err)
++	}
++	vs, err := variableshape.NewSet(lang, rs)
++	if err != nil {
++		t.Fatal(err)
++	}
++	qs := query.NewSet(lang.ID(), lang.SitterLanguage())
++	t.Cleanup(qs.Close)
++	ds, err := detectorset.New(nil, lang, rs, vs, qs)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := qs.Compile(); err != nil {
++		t.Fatal(err)
++	}
++	var content strings.Builder
++	content.WriteString(src)
++	content.WriteString("\n")
++	for i := 0; i < statements; i++ {
++		fmt.Fprintf(&content, "const value%d = %d;\n", i, i)
++	}
++	tr, err := ast.ParseAndAnalyze(context.Background(), lang, rs, qs, []byte(content.String()))
++	if err != nil {
++		t.Fatal(err)
++	}
++	rule, err := rs.RuleByID("parent")
++	if err != nil {
++		t.Fatal(err)
++	}
++	memo := cache.NewCache(tr, cache.NewShared(rs.Rules()))
++	actual := ds
++	if off {
++		actual = memoOff{ds}
++	}
++	return realFixture{tr, rs, rule, ds, rulescanner.New(ctx, actual, "memo.js", nil, traversalstrategy.NewCache(tr.NodeCount()), memo), memo}
++}
++
++func scanProjection(t *testing.T, f realFixture, scope traversalstrategy.Strategy) (string, error) {
++	t.Helper()
++	found, err := f.scanner.Scan(f.ast.RootNode(), f.rule, scope)
++	// Full ordered detector data, rule identity, node and variable positions are
++	// included; independent ASTs have the same IDs and no mutable private fields.
++	encoded, e := json.Marshal(found)
++	if e != nil {
++		t.Fatal(e)
++	}
++	return string(encoded), err
++}
++
++func TestRealEmptyMemoDifferentialFindingsAndActualReuse(t *testing.T) {
++	cases := []struct {
++		name, source string
++		positive     bool
++	}{
++		{"negative", "app.use(other());", false},
++		{"positive", "app.use(session());", true},
++		{"nested", "function configure() { app.use(session()); }", true},
++		{"multiple", "app.use(session()); app.use(other()); app.use(session());", true},
++		{"alias", "const middleware = session(); app.use(middleware);", true},
++		{"disabled", "// bearer:disable parent\napp.use(session());", false},
++	}
++	for _, tc := range cases {
++		t.Run(tc.name, func(t *testing.T) {
++			on := realMemoFixture(t, context.Background(), tc.source, 3500, false, nil)
++			off := realMemoFixture(t, context.Background(), tc.source, 3500, true, nil)
++			if on.ast.NodeCount() <= 20000 || on.ast.NodeCount() > 250000 {
++				t.Fatalf("invalid active fixture %d", on.ast.NodeCount())
++			}
++			for pass := 0; pass < 3; pass++ {
++				a, ae := scanProjection(t, on, traversalstrategy.Nested)
++				b, be := scanProjection(t, off, traversalstrategy.Nested)
++				if a != b || ae != nil || be != nil {
++					t.Fatalf("pass %d changed ordered output/errors: %s/%v vs %s/%v", pass, a, ae, b, be)
++				}
++				if tc.positive && (a == "null" || a == "[]") {
++					t.Fatal("positive fixture produced no real detection")
++				}
++				if tc.positive {
++					assertNoClosureProof(t, on)
++				}
++			}
++			hits, records := on.memo.EmptyScanMemoCounts()
++			offHits, offRecords := off.memo.EmptyScanMemoCounts()
++			if offHits != 0 || offRecords != 0 {
++				t.Fatal("OFF reused memo")
++			}
++			if tc.positive && (hits != 0 || records != 0) {
++				t.Fatal("positive scan memoized")
++			}
++			if !tc.positive && (hits != 2 || records != 1) {
++				t.Fatalf("negative did not actually reuse exact root: hits=%d records=%d", hits, records)
++			}
++		})
++	}
++}
++
++func TestRealMemoClearScopeCancellationAndOwnerFence(t *testing.T) {
++	ctx, cancel := context.WithCancel(context.Background())
++	defer cancel()
++	f := realMemoFixture(t, ctx, "app.use(other());", 3500, false, nil)
++	if _, err := scanProjection(t, f, traversalstrategy.Nested); err != nil {
++		t.Fatal(err)
++	}
++	owner := detectorset.EmptyScanMemoSafety(f.compiled, f.rule)
++	if owner == nil {
++		t.Fatal("real immutable compiled closure rejected")
++	}
++	if !f.memo.EmptyScanCached(f.ast.RootNode(), f.rule, owner) {
++		t.Fatal("missing exact-root memo")
++	}
++	if !f.memo.EmptyScanCached(f.ast.RootNode().Children()[0], f.rule, owner) {
++		t.Fatal("completed empty traversal did not retain descendant proof")
++	}
++	if f.memo.EmptyScanCached(f.ast.RootNode(), f.rule, nil) {
++		t.Fatal("unknown owner reused memo")
++	}
++	otherFixture := realMemoFixture(t, context.Background(), "app.use(other());", 3500, false, nil)
++	if f.memo.EmptyScanCached(otherFixture.ast.RootNode(), f.rule, owner) || f.memo.EmptyScanCached(f.ast.RootNode(), otherFixture.rule, owner) {
++		t.Fatal("another AST or same-ID different Rule reused memo")
++	}
++	// Compile another detector set from the exact same immutable Rule objects.
++	lang := javascript.Get()
++	vs, err := variableshape.NewSet(lang, f.rules)
++	if err != nil {
++		t.Fatal(err)
++	}
++	qs := query.NewSet(lang.ID(), lang.SitterLanguage())
++	defer qs.Close()
++	other, err := detectorset.New(nil, lang, f.rules, vs, qs)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if f.memo.EmptyScanCached(f.ast.RootNode(), f.rule, detectorset.EmptyScanMemoSafety(other, f.rule)) {
++		t.Fatal("different compiled owner reused memo")
++	}
++	before, _ := f.memo.EmptyScanMemoCounts()
++	if _, err := scanProjection(t, f, traversalstrategy.NestedStrict); err != nil {
++		t.Fatal(err)
++	}
++	after, _ := f.memo.EmptyScanMemoCounts()
++	if after != before {
++		t.Fatal("different traversal scope reused memo")
++	}
++	cancel()
++	if _, err := scanProjection(t, f, traversalstrategy.Nested); !errors.Is(err, context.Canceled) {
++		t.Fatalf("memo hid cancellation: %v", err)
++	}
++	f.memo.Clear()
++	if f.memo.EmptyScanCached(f.ast.RootNode(), f.rule, owner) {
++		t.Fatal("Clear retained bits")
++	}
++	assertNoClosureProof(t, f)
++}
++
++// Enter the actual compiled parent at a descendant, then re-enter Nested at
++// the root through its real leaf-reference callback. Original evaluation must
++// still report a cycle; a root-only active check would skip the whole walk.
++type recurseContext struct {
++	scan func(*tree.Node, *ruleset.Rule, traversalstrategy.Strategy) ([]*detectortypes.Detection, error)
++}
++
++func (c recurseContext) Filename() string { return "memo.js" }
++func (c recurseContext) Scan(n *tree.Node, r *ruleset.Rule, s traversalstrategy.Strategy) ([]*detectortypes.Detection, error) {
++	return c.scan(n, r, s)
++}
++
++func TestRealMemoPreservesActiveDescendantCycle(t *testing.T) {
++	var cycleErrors []string
++	for _, off := range []bool{false, true} {
++		f := realMemoFixture(t, context.Background(), "app.use(other());", 3500, off, nil)
++		if _, err := scanProjection(t, f, traversalstrategy.Nested); err != nil {
++			t.Fatal(err)
++		}
++		var app *tree.Node
++		for i := range f.ast.Nodes() {
++			n := &f.ast.Nodes()[i]
++			if n.Type() == "call_expression" && n.Content() == "app.use(other())" {
++				app = n
++				break
++			}
++		}
++		if app == nil {
++			t.Fatal("missing actual call")
++		}
++		// Recreate the proven completed-empty entry after clearing only ordinary
++		// entries, so randomized normal-cache eviction cannot weaken the oracle.
++		owner := detectorset.EmptyScanMemoSafety(f.compiled, f.rule)
++		f.memo.Clear()
++		if !f.memo.RecordEmptyScan(f.ast.RootNode(), f.rule, owner) {
++			t.Fatal("missing proven empty setup")
++		}
++		_, err := f.compiled.DetectAt(app, f.rule, recurseContext{func(_ *tree.Node, _ *ruleset.Rule, _ traversalstrategy.Strategy) ([]*detectortypes.Detection, error) {
++			return f.scanner.Scan(f.ast.RootNode(), f.rule, traversalstrategy.Nested)
++		}})
++		if err == nil || !strings.Contains(err.Error(), "cycle found during rule evaluation") {
++			t.Fatalf("OFF=%v descendant cycle suppressed: %v", off, err)
++		}
++		if detectorset.EmptyScanMemoSafety(f.compiled, f.rule) == nil {
++			t.Fatal("active tracker not unwound after error")
++		}
++		cycleErrors = append(cycleErrors, err.Error())
++	}
++	if len(cycleErrors) != 2 || cycleErrors[0] != cycleErrors[1] {
++		t.Fatalf("cycle error text changed: %v", cycleErrors)
++	}
++}
++
++func TestRealMemoUnsupportedClosureAndBoundsFallback(t *testing.T) {
++	cases := []struct {
++		name   string
++		count  int
++		change func(map[string]*settings.Rule)
++	}{
++		{"small", 2, nil}, {"oversize", 45000, nil},
++		{"same_id_altered_leaf", 3500, func(x map[string]*settings.Rule) { x["leaf"].Patterns[0].Pattern = "other()" }},
++		{"leaf_sanitizer", 3500, func(x map[string]*settings.Rule) { x["leaf"].SanitizerRuleID = "parent" }},
++	}
++	for _, tc := range cases {
++		t.Run(tc.name, func(t *testing.T) {
++			if tc.name == "oversize" && testing.Short() {
++				t.Skip("large AST cap fixture")
++			}
++			on := realMemoFixture(t, context.Background(), "app.use(other());", tc.count, false, tc.change)
++			off := realMemoFixture(t, context.Background(), "app.use(other());", tc.count, true, tc.change)
++			for pass := 0; pass < 2; pass++ {
++				a, ae := scanProjection(t, on, traversalstrategy.Nested)
++				b, be := scanProjection(t, off, traversalstrategy.Nested)
++				if a != b || fmt.Sprint(ae) != fmt.Sprint(be) {
++					t.Fatalf("fallback changed semantics: %s/%v vs %s/%v", a, ae, b, be)
++				}
++			}
++			hits, records := on.memo.EmptyScanMemoCounts()
++			if hits != 0 || records != 0 {
++				t.Fatal("ineligible/capped traversal memoized")
++			}
++		})
++	}
++}
++
++// Deterministic cooperative cancellation partway through a real traversal.
++// AST preparation uses another context, so the counter covers scan work only.
++type countdownContext struct {
++	context.Context
++	checks, limit int
++}
++
++func (c *countdownContext) Err() error {
++	c.checks++
++	if c.checks >= c.limit {
++		return context.Canceled
++	}
++	return nil
++}
++func TestRealMemoNeverRecordsIncompleteTraversal(t *testing.T) {
++	for _, off := range []bool{false, true} {
++		ctx := &countdownContext{Context: context.Background(), limit: 10}
++		f := realMemoFixture(t, ctx, "app.use(other());", 3500, off, nil)
++		_, err := scanProjection(t, f, traversalstrategy.Nested)
++		if !errors.Is(err, context.Canceled) {
++			t.Fatalf("OFF=%v incomplete scan lost cancellation: %v", off, err)
++		}
++		hits, records := f.memo.EmptyScanMemoCounts()
++		if hits != 0 || records != 0 {
++			t.Fatal("incomplete traversal recorded/reused")
++		}
++		assertNoClosureProof(t, f)
++	}
++}
++
++func TestRealMemoCompletedClosureReusesDescendants(t *testing.T) {
++	f := realMemoFixture(t, context.Background(), "function irrelevant(){app.use(other());}", 3500, false, nil)
++	if _, err := scanProjection(t, f, traversalstrategy.Nested); err != nil {
++		t.Fatal(err)
++	}
++	before, records := f.memo.EmptyScanMemoCounts()
++	var child *tree.Node
++	for i := range f.ast.Nodes() {
++		n := &f.ast.Nodes()[i]
++		if n.Type() == "call_expression" {
++			child = n
++			break
++		}
++	}
++	if child == nil {
++		t.Fatal("missing actual child")
++	}
++	found, err := f.scanner.Scan(child, f.rule, traversalstrategy.Nested)
++	if err != nil || len(found) != 0 {
++		t.Fatalf("completed empty descendant changed: %v %v", found, err)
++	}
++	after, nextRecords := f.memo.EmptyScanMemoCounts()
++	if after != before+1 || nextRecords != records {
++		t.Fatal("descendant did not reuse completed closure")
++	}
++}
++
++func TestRealMemoEmptyBranchDoesNotHidePositiveSibling(t *testing.T) {
++	source := "function irrelevant(){app.use(other());} app.use(session());"
++	on := realMemoFixture(t, context.Background(), source, 3500, false, nil)
++	off := realMemoFixture(t, context.Background(), source, 3500, true, nil)
++	var branch *tree.Node
++	for i := range on.ast.Nodes() {
++		n := &on.ast.Nodes()[i]
++		if n.Type() == "function_declaration" {
++			branch = n
++			break
++		}
++	}
++	if branch == nil {
++		t.Fatal("missing actual branch")
++	}
++	if found, err := on.scanner.Scan(branch, on.rule, traversalstrategy.Nested); err != nil || len(found) != 0 {
++		t.Fatalf("warm branch not empty: %v %v", found, err)
++	}
++	a, ae := scanProjection(t, on, traversalstrategy.Nested)
++	b, be := scanProjection(t, off, traversalstrategy.Nested)
++	if a != b || ae != nil || be != nil || a == "null" || a == "[]" {
++		t.Fatalf("positive sibling changed: %s/%v vs %s/%v", a, ae, b, be)
++	}
++}
++
++func assertNoClosureProof(t *testing.T, f realFixture) {
++	t.Helper()
++	owner := detectorset.EmptyScanMemoSafety(f.compiled, f.rule)
++	for i := range f.ast.Nodes() {
++		n := &f.ast.Nodes()[i]
++		if f.memo.EmptyScanCached(n, f.rule, owner) {
++			t.Fatalf("unexpected proof at descendant %d", n.ID)
++		}
++	}
++}
++
++func TestRealMemoNegativeAliasOutsideWarmSubtree(t *testing.T) {
++	source := "const middleware = other(); function configure(){ app.use(middleware); }"
++	on := realMemoFixture(t, context.Background(), source, 3500, false, nil)
++	off := realMemoFixture(t, context.Background(), source, 3500, true, nil)
++	var branch *tree.Node
++	for i := range on.ast.Nodes() {
++		n := &on.ast.Nodes()[i]
++		if n.Type() == "function_declaration" {
++			branch = n
++			break
++		}
++	}
++	if branch == nil {
++		t.Fatal("missing real function")
++	}
++	syntactic := map[int]bool{}
++	if err := traversalstrategy.NestedStrict.Traverse(traversalstrategy.NewCache(on.ast.NodeCount()), branch, func(n *tree.Node) (bool, error) { syntactic[n.ID] = true; return false, nil }); err != nil {
++		t.Fatal(err)
++	}
++	var external *tree.Node
++	if err := traversalstrategy.Nested.Traverse(traversalstrategy.NewCache(on.ast.NodeCount()), branch, func(n *tree.Node) (bool, error) {
++		if !syntactic[n.ID] && external == nil {
++			external = n
++		}
++		return false, nil
++	}); err != nil {
++		t.Fatal(err)
++	}
++	if external == nil {
++		t.Fatal("fixture did not follow a real alias outside the warm syntax subtree")
++	}
++	for _, f := range []realFixture{on, off} {
++		found, err := f.scanner.Scan(&f.ast.Nodes()[branch.ID], f.rule, traversalstrategy.Nested)
++		if err != nil || len(found) != 0 {
++			t.Fatalf("warm scan not empty: %v %v", found, err)
++		}
++	}
++	before, records := on.memo.EmptyScanMemoCounts()
++	a, ae := on.scanner.Scan(external, on.rule, traversalstrategy.Nested)
++	b, be := off.scanner.Scan(&off.ast.Nodes()[external.ID], off.rule, traversalstrategy.Nested)
++	ax, _ := json.Marshal(a)
++	bx, _ := json.Marshal(b)
++	if string(ax) != string(bx) || ae != nil || be != nil {
++		t.Fatalf("external alias changed: %s/%v vs %s/%v", ax, ae, bx, be)
++	}
++	after, nextRecords := on.memo.EmptyScanMemoCounts()
++	if after != before+1 || nextRecords != records {
++		t.Fatal("external alias did not reuse completed empty proof")
++	}
++}
+--- /dev/null
++++ b/pkg/scanner/rulescanner/query_absence_test.go
+@@ -0,0 +1,175 @@
++package rulescanner_test
++
++import (
++	"context"
++	"errors"
++	"testing"
++
++	"github.com/bearer/bearer/pkg/commands/process/settings"
++	"github.com/bearer/bearer/pkg/report/customdetectors"
++	"github.com/bearer/bearer/pkg/scanner/ast/traversalstrategy"
++	"github.com/bearer/bearer/pkg/scanner/cache"
++	"github.com/bearer/bearer/pkg/scanner/detectorset"
++	"github.com/bearer/bearer/pkg/scanner/rulescanner"
++)
++
++func sharedPattern(pattern string, extra ...settings.RulePattern) func(map[string]*settings.Rule) {
++	return func(rules map[string]*settings.Rule) {
++		rules["parent"].Type = customdetectors.TypeShared
++		rules["parent"].IsAuxilary = false
++		rules["parent"].Patterns = append([]settings.RulePattern{{Pattern: pattern}}, extra...)
++	}
++}
++
++func TestQueryAbsenceRealCompiledDifferential(t *testing.T) {
++	pattern := "const { $<!>$<MEMBER> } = $<LIBRARY>"
++	for _, tc := range []struct {
++		name, source     string
++		absent, positive bool
++		configure        func(map[string]*settings.Rule)
++	}{
++		{"absent", "function run(value) { return value + 1; }", true, false, sharedPattern(pattern)},
++		{"present", "const { exec } = require('child_process');", false, true, sharedPattern(pattern)},
++		{"nested", "function run() { const { exec } = require('child_process'); }", false, true, sharedPattern(pattern)},
++		{"second-pattern", "foo();", false, true, sharedPattern(pattern, settings.RulePattern{Pattern: "foo()"})},
++		{"root-variable", "const value = 1;", false, true, sharedPattern("$<VALUE>")},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			on := realMemoFixture(t, context.Background(), tc.source, 0, false, tc.configure)
++			off := absenceOffFixture(on)
++			if got := detectorset.PatternsAbsent(on.compiled, on.rule, on.ast); got != tc.absent {
++				t.Fatalf("absence=%t, want %t", got, tc.absent)
++			}
++			if detectorset.PatternsAbsent(memoOff{on.compiled}, on.rule, on.ast) {
++				t.Fatal("unknown set admitted")
++			}
++			for _, scope := range []traversalstrategy.Strategy{traversalstrategy.Nested, traversalstrategy.NestedStrict, traversalstrategy.Cursor, traversalstrategy.CursorStrict, traversalstrategy.Result} {
++				a, ae := scanProjection(t, on, scope)
++				b, be := scanProjection(t, off, scope)
++				if a != b || ae != nil || be != nil {
++					t.Fatalf("%s changed output/error: %s/%v vs %s/%v", scope.Scope(), a, ae, b, be)
++				}
++				if tc.positive && scope == traversalstrategy.Nested && (a == "null" || a == "[]") {
++					t.Fatal("positive control had no detection")
++				}
++			}
++		})
++	}
++}
++
++func TestQueryAbsenceCancellationCycleAndSanitizer(t *testing.T) {
++	pattern := "const { $<!>$<MEMBER> } = $<LIBRARY>"
++	ctx, cancel := context.WithCancel(context.Background())
++	f := realMemoFixture(t, ctx, "const value = 1;", 0, false, sharedPattern(pattern))
++	if !detectorset.PatternsAbsent(f.compiled, f.rule, f.ast) {
++		t.Fatal("fixture not absent")
++	}
++	cancel()
++	if _, err := scanProjection(t, f, traversalstrategy.Nested); !errors.Is(err, context.Canceled) {
++		t.Fatalf("cancel: %v", err)
++	}
++	cycle := realMemoFixture(t, context.Background(), "const value = 1;", 0, false, sharedPattern(pattern))
++	cycle.ast.RootNode().ExecutingDetectors = append(cycle.ast.RootNode().ExecutingDetectors, cycle.rule.Index())
++	if _, err := scanProjection(t, cycle, traversalstrategy.Nested); err == nil {
++		t.Fatal("root cycle suppressed")
++	}
++	sanitized := realMemoFixture(t, context.Background(), "const value = 1;", 0, false, func(r map[string]*settings.Rule) { sharedPattern(pattern)(r); r["parent"].SanitizerRuleID = "leaf" })
++	if detectorset.PatternsAbsent(sanitized.compiled, sanitized.rule, sanitized.ast) {
++		t.Fatal("sanitizer admitted")
++	}
++}
++
++func TestQueryAbsenceBoundReferenceDifferential(t *testing.T) {
++	configure := func(r map[string]*settings.Rule) {
++		r["parent"].Patterns = []settings.RulePattern{
++			{Pattern: "$<PATH>", Filters: []settings.PatternFilter{{Variable: "PATH", Detection: "leaf", Scope: settings.CURSOR_SCOPE}}},
++			{Pattern: "import { $<!>exec } from \"child_process\""},
++		}
++		r["leaf"].Type = customdetectors.TypeShared
++		r["leaf"].IsAuxilary = false
++		r["leaf"].Patterns = []settings.RulePattern{{Pattern: "const { $<!>$<MEMBER> } = $<LIBRARY>"}}
++	}
++	for _, tc := range []struct {
++		name, source string
++		absent       bool
++	}{
++		{"negative", "function run(value) { return value + 1; }", true},
++		{"positive", "const { exec } = require('child_process'); exec(input);", false},
++		{"alias", "const { exec } = require('child_process'); const run = exec; run(input);", false},
++		{"second-pattern", "import { exec } from 'child_process';", false},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			on := realMemoFixture(t, context.Background(), tc.source, 0, false, configure)
++			off := absenceOffFixture(on)
++			if got := detectorset.PatternsAbsent(on.compiled, on.rule, on.ast); got != tc.absent {
++				t.Fatalf("bound proof=%t, want %t", got, tc.absent)
++			}
++			a, ae := scanProjection(t, on, traversalstrategy.Nested)
++			b, be := scanProjection(t, off, traversalstrategy.Nested)
++			if a != b || ae != nil || be != nil {
++				t.Fatalf("ordered result/error changed: %s/%v vs %s/%v", a, ae, b, be)
++			}
++			if !tc.absent && (a == "null" || a == "[]") {
++				t.Fatal("positive reference control produced no finding")
++			}
++		})
++	}
++	// An unbound normal query does not establish that the referenced variable
++	// exists; even a globally empty child must not suppress its original errors.
++	fallback := realMemoFixture(t, context.Background(), "foo(1);", 0, false, func(r map[string]*settings.Rule) {
++		configure(r)
++		r["parent"].Patterns[0].Pattern = "foo($<PATH>)"
++	})
++	if detectorset.PatternsAbsent(fallback.compiled, fallback.rule, fallback.ast) {
++		t.Fatal("normal query's binding assumed")
++	}
++}
++
++// Independent compilation can assign variables to different shape slots. Use
++// the same immutable AST/compiled rules, but distinct scanner/cache instances,
++// so complete ordered detection data is compared without masking that layout.
++func absenceOffFixture(on realFixture) realFixture {
++	off := on
++	off.memo = cache.NewCache(on.ast, cache.NewShared(on.rules.Rules()))
++	off.scanner = rulescanner.New(context.Background(), memoOff{on.compiled}, "memo.js", nil, traversalstrategy.NewCache(on.ast.NodeCount()), off.memo)
++	return off
++}
++
++func TestQueryAbsencePreservesReachableVariableErrors(t *testing.T) {
++	for _, emptyFirst := range []bool{false, true} {
++		configure := func(r map[string]*settings.Rule) {
++			empty := settings.PatternFilter{Variable: "PATH", Detection: "leaf", Scope: settings.CURSOR_SCOPE}
++			missing := settings.PatternFilter{Variable: "OTHER", Detection: "leaf", Scope: settings.CURSOR_SCOPE}
++			filters := []settings.PatternFilter{missing, empty}
++			if emptyFirst {
++				filters = []settings.PatternFilter{empty, missing}
++			}
++			r["parent"].Patterns = []settings.RulePattern{
++				{Pattern: "$<PATH>", Filters: filters},
++				// Declares OTHER in the rule shape but does not bind it in the
++				// first pattern. Its own query is absent from the fixture.
++				{Pattern: "other($<OTHER>)"},
++			}
++			r["leaf"].Type = customdetectors.TypeShared
++			r["leaf"].IsAuxilary = false
++			r["leaf"].Patterns = []settings.RulePattern{{Pattern: "const { $<!>$<MEMBER> } = $<LIBRARY>"}}
++		}
++		on := realMemoFixture(t, context.Background(), "const value = 1;", 0, false, configure)
++		off := absenceOffFixture(on)
++		if got := detectorset.PatternsAbsent(on.compiled, on.rule, on.ast); got != emptyFirst {
++			t.Fatalf("emptyFirst=%t proof=%t", emptyFirst, got)
++		}
++		a, ae := scanProjection(t, on, traversalstrategy.Nested)
++		b, be := scanProjection(t, off, traversalstrategy.Nested)
++		if a != b || (ae == nil) != (be == nil) {
++			t.Fatalf("emptyFirst=%t changed error: %s/%v vs %s/%v", emptyFirst, a, ae, b, be)
++		}
++		if emptyFirst {
++			if ae != nil {
++				t.Fatalf("unreachable error: %v", ae)
++			}
++		} else if ae == nil || ae.Error() != be.Error() || ae.Error() != "couldn't find node for var OTHER" {
++			t.Fatalf("reachable error changed: %v/%v", ae, be)
++		}
++	}
++}
+--- a/pkg/scanner/rulescanner/rulescanner.go
++++ b/pkg/scanner/rulescanner/rulescanner.go
+@@ -3,8 +3,10 @@
+ import (
+ 	"context"
+ 	"fmt"
++	"slices"
+ 	"time"
+ 
++	"github.com/rs/zerolog"
+ 	"github.com/rs/zerolog/log"
+ 
+ 	"github.com/bearer/bearer/pkg/scanner/ast/traversalstrategy"
+@@ -56,7 +58,7 @@
+ 		defer scanner.stats.Rule(rule.ID(), startTime)
+ 	}
+ 
+-	if log.Trace().Enabled() {
++	if zerolog.GlobalLevel() <= zerolog.TraceLevel && log.Trace().Enabled() {
+ 		log.Trace().Msgf(
+ 			"rule %s scan start at %s [%s]",
+ 			rule.ID(),
+@@ -65,12 +67,49 @@
+ 		)
+ 	}
+ 
++	// Preserve cancellation and same-node cycle errors even on a memo hit.
++	if scanner.ctx.Err() != nil {
++		return nil, scanner.ctx.Err()
++	}
++	if (traversalStrategy == traversalstrategy.Nested || traversalStrategy == traversalstrategy.NestedStrict || traversalStrategy == traversalstrategy.Cursor || traversalStrategy == traversalstrategy.CursorStrict || traversalStrategy == traversalstrategy.Result) &&
++		!slices.Contains(rootNode.ExecutingDetectors, rule.Index()) && detectorset.PatternsAbsent(scanner.detectorSet, rule, rootNode.Tree()) {
++		return nil, scanner.ctx.Err()
++	}
++	memoOwner := detectorset.EmptyScanMemoSafety(scanner.detectorSet, rule)
++	if traversalStrategy == traversalstrategy.Nested &&
++		!slices.Contains(rootNode.ExecutingDetectors, rule.Index()) &&
++		scanner.cache.EmptyScanCached(rootNode, rule, memoOwner) {
++		if err := scanner.ctx.Err(); err != nil {
++			return nil, err
++		}
++		scanner.cache.RecordEmptyScanMemoHit()
++		if zerolog.GlobalLevel() <= zerolog.TraceLevel && log.Trace().Enabled() {
++			log.Trace().Msgf("rule %s scan end at %s [%s]: 0 detections",
++				rule.ID(), rootNode.Debug(), traversalStrategy.Scope())
++		}
++		return nil, nil
++	}
++
++	// Keep pending proof separate: errors, positive detections and cancellation
++	// must never publish reusable bits. Nested visits a closed children/alias
++	// graph, so a completed empty traversal also proves its visited descendants.
++	var visited []uint64
++	if traversalStrategy == traversalstrategy.Nested {
++		visited = scanner.cache.PendingEmptyScan(rootNode, rule, memoOwner)
++	}
+ 	var detections []*detectortypes.Detection
+ 	if err := traversalStrategy.Traverse(scanner.traversalCache, rootNode, func(node *tree.Node) (bool, error) {
+ 		if scanner.ctx.Err() != nil {
+ 			return false, scanner.ctx.Err()
+ 		}
+ 
++		if visited != nil {
++			if node.Tree() != rootNode.Tree() || node.ID < 0 || node.ID >= rootNode.Tree().NodeCount() {
++				visited = nil
++			} else {
++				visited[node.ID/64] |= uint64(1) << uint(node.ID%64)
++			}
++		}
+ 		result, err := scanner.detectAtNode(rule, node)
+ 		if result == nil || err != nil {
+ 			return false, err
+@@ -82,7 +121,11 @@
+ 		return nil, err
+ 	}
+ 
+-	if log.Trace().Enabled() {
++	if len(detections) == 0 && traversalStrategy == traversalstrategy.Nested && scanner.ctx.Err() == nil {
++		scanner.cache.RecordEmptyScanClosure(rootNode, rule, detectorset.EmptyScanMemoSafety(scanner.detectorSet, rule), visited)
++	}
++
++	if zerolog.GlobalLevel() <= zerolog.TraceLevel && log.Trace().Enabled() {
+ 		log.Trace().Msgf(
+ 			"rule %s scan end at %s [%s]: %d detections",
+ 			rule.ID(),
+@@ -100,12 +143,12 @@
+ }
+ 
+ func (scanner *Scanner) detectAtNode(rule *ruleset.Rule, node *tree.Node) (*detectorset.Result, error) {
+-	if log.Trace().Enabled() {
++	if zerolog.GlobalLevel() <= zerolog.TraceLevel && log.Trace().Enabled() {
+ 		log.Trace().Msgf("detect at node start: %s at %s", rule.ID(), node.Debug())
+ 	}
+ 
+ 	if result, cached := scanner.cache.Get(node, rule); cached {
+-		if log.Trace().Enabled() {
++		if zerolog.GlobalLevel() <= zerolog.TraceLevel && log.Trace().Enabled() {
+ 			log.Trace().Msgf(
+ 				"detect at node end: %s at %s: %s (cached)",
+ 				rule.ID(),
+@@ -118,7 +161,7 @@
+ 	}
+ 
+ 	if node.RuleDisabled(rule.Index()) {
+-		if log.Trace().Enabled() {
++		if zerolog.GlobalLevel() <= zerolog.TraceLevel && log.Trace().Enabled() {
+ 			log.Trace().Msgf(
+ 				"detect at node end: %s at %s: rule disabled",
+ 				rule.ID(),
+@@ -135,7 +178,7 @@
+ 		return nil, err
+ 	}
+ 
+-	if log.Trace().Enabled() {
++	if zerolog.GlobalLevel() <= zerolog.TraceLevel && log.Trace().Enabled() {
+ 		log.Trace().Msgf(
+ 			"detect at node end: %s at %s: %s",
+ 			rule.ID(),
+@@ -149,6 +192,10 @@
+ }
+ 
+ func traceResultText(result *detectorset.Result) string {
++	if result == nil {
++		return "0 detections"
++	}
++
+ 	if result.Sanitized {
+ 		return "sanitized"
+ 	}
+--- /dev/null
++++ b/pkg/scanner/rulescanner/trace_gate_test.go
+@@ -0,0 +1,172 @@
++package rulescanner
++
++import (
++	"bytes"
++	"context"
++	"errors"
++	"strings"
++	"testing"
++
++	"github.com/rs/zerolog"
++	"github.com/rs/zerolog/log"
++	sitter "github.com/smacker/go-tree-sitter"
++	"github.com/smacker/go-tree-sitter/javascript"
++
++	"github.com/bearer/bearer/pkg/scanner/ast/traversalstrategy"
++	"github.com/bearer/bearer/pkg/scanner/ast/tree"
++	"github.com/bearer/bearer/pkg/scanner/cache"
++	detectortypes "github.com/bearer/bearer/pkg/scanner/detectors/types"
++	"github.com/bearer/bearer/pkg/scanner/detectorset"
++	"github.com/bearer/bearer/pkg/scanner/ruleset"
++)
++
++type traceGateDetectorSet struct {
++	calls  int
++	result *detectorset.Result
++}
++
++func (set *traceGateDetectorSet) DetectAt(*tree.Node, *ruleset.Rule, detectortypes.Context) (*detectorset.Result, error) {
++	set.calls++
++	return set.result, nil
++}
++
++func TestTraceGatePreservesDetectionAndOutputAcrossLevels(t *testing.T) {
++	priorLogger, priorLevel := log.Logger, zerolog.GlobalLevel()
++	defer func() {
++		log.Logger = priorLogger
++		zerolog.SetGlobalLevel(priorLevel)
++	}()
++
++	content := []byte("const value = 1")
++	parsed, err := sitter.ParseCtx(context.Background(), content, javascript.GetLanguage())
++	if err != nil {
++		t.Fatal(err)
++	}
++	ast := tree.NewBuilder(javascript.GetLanguage(), content, parsed, 5, nil).Build()
++	node := ast.RootNode()
++	rule := ruleset.BuiltinDatatypeRule
++	// Enumerate independently of traversalstrategy.Nested, including aliases.
++	// A nil detector result must not prune any of these reachable nodes.
++	reachable := map[*tree.Node]bool{}
++	stack := []*tree.Node{node}
++	for len(stack) > 0 {
++		current := stack[len(stack)-1]
++		stack = stack[:len(stack)-1]
++		if reachable[current] {
++			continue
++		}
++		reachable[current] = true
++		stack = append(stack, current.Children()...)
++		stack = append(stack, current.AliasOf()...)
++	}
++	if len(reachable) < 2 {
++		t.Fatal("fixture must contain multiple reachable AST nodes")
++	}
++	for _, level := range []struct {
++		name  string
++		value zerolog.Level
++		trace bool
++	}{
++		{"info", zerolog.InfoLevel, false},
++		{"debug", zerolog.DebugLevel, false},
++		{"trace", zerolog.TraceLevel, true},
++	} {
++		t.Run(level.name, func(t *testing.T) {
++			var output bytes.Buffer
++			log.Logger = zerolog.New(&output).Level(zerolog.TraceLevel)
++			zerolog.SetGlobalLevel(level.value)
++			result := &detectorset.Result{Sanitized: true}
++			set := &traceGateDetectorSet{result: result}
++			scanner := New(context.Background(), set, "fixture.js", nil,
++				traversalstrategy.NewCache(ast.NodeCount()), cache.NewCache(ast, cache.NewShared([]*ruleset.Rule{rule})))
++			for i := 0; i < 2; i++ {
++				got, err := scanner.detectAtNode(rule, node)
++				if err != nil || got != result {
++					t.Fatalf("detection result changed on visit %d: %v, %v", i, got, err)
++				}
++			}
++			if set.calls != 1 {
++				t.Fatalf("cached detection invoked detector %d times", set.calls)
++			}
++			// A disabled rule already stores a nil result in the cache. Its
++			// trace-on cache hit must remain a miss without dereferencing nil.
++			cached := cache.NewCache(ast, cache.NewShared([]*ruleset.Rule{rule}))
++			cached.Put(node, rule, nil)
++			cachedScanner := New(context.Background(), set, "fixture.js", nil,
++				traversalstrategy.NewCache(ast.NodeCount()), cached)
++			if got, err := cachedScanner.detectAtNode(rule, node); err != nil || got != nil {
++				t.Fatalf("cached nil result changed: %v, %v", got, err)
++			}
++			if set.calls != 1 {
++				t.Fatalf("cached nil invoked detector %d times", set.calls)
++			}
++			// A fresh detector miss now returns nil and is cached as a distinct
++			// hit; both visits must remain non-detections without re-invocation.
++			emptySet := &traceGateDetectorSet{}
++			emptyScanner := New(context.Background(), emptySet, "fixture.js", nil,
++				traversalstrategy.NewCache(ast.NodeCount()),
++				cache.NewCache(ast, cache.NewShared([]*ruleset.Rule{rule})))
++			for i := 0; i < 2; i++ {
++				if got, err := emptyScanner.detectAtNode(rule, node); err != nil || got != nil {
++					t.Fatalf("empty detection changed on visit %d: %v, %v", i, got, err)
++				}
++			}
++			if emptySet.calls != 1 {
++				t.Fatalf("empty result cache invoked detector %d times", emptySet.calls)
++			}
++			scanSet := &traceGateDetectorSet{}
++			scan := New(context.Background(), scanSet, "fixture.js", nil,
++				traversalstrategy.NewCache(ast.NodeCount()),
++				cache.NewCache(ast, cache.NewShared([]*ruleset.Rule{rule})))
++			detections, err := scan.Scan(node, rule, traversalstrategy.Nested)
++			if err != nil || len(detections) != 0 || scanSet.calls != len(reachable) {
++				t.Fatalf("empty scan changed: detections=%d err=%v calls=%d reachable=%d", len(detections), err, scanSet.calls, len(reachable))
++			}
++			// The disabled rule skips the detector and caches nil as well.
++			disabledBuilder := tree.NewBuilder(javascript.GetLanguage(), content, parsed, 5, nil)
++			disabledBuilder.AddDisabledRules(parsed, []*ruleset.Rule{rule})
++			disabledTree := disabledBuilder.Build()
++			disabledScanner := New(context.Background(), set, "fixture.js", nil,
++				traversalstrategy.NewCache(disabledTree.NodeCount()),
++				cache.NewCache(disabledTree, cache.NewShared([]*ruleset.Rule{rule})))
++			for i := 0; i < 2; i++ {
++				if got, err := disabledScanner.detectAtNode(rule, disabledTree.RootNode()); err != nil || got != nil {
++					t.Fatalf("disabled detection changed on visit %d: %v, %v", i, got, err)
++				}
++			}
++			if set.calls != 1 {
++				t.Fatalf("disabled rule invoked detector %d times", set.calls)
++			}
++			text := output.String()
++			if has := strings.Contains(text, "detect at node start:"); has != level.trace {
++				t.Fatalf("trace start presence = %t, want %t", has, level.trace)
++			}
++			if has := strings.Contains(text, "(cached)"); has != level.trace {
++				t.Fatalf("trace cached result presence = %t, want %t", has, level.trace)
++			}
++			if has := strings.Contains(text, "0 detections (cached)"); has != level.trace {
++				t.Fatalf("trace nil result presence = %t, want %t", has, level.trace)
++			}
++		})
++	}
++}
++
++func TestCancellationAtTraversalBoundaryBeforeDetector(t *testing.T) {
++	content := []byte("const value = 1")
++	parsed, err := sitter.ParseCtx(context.Background(), content, javascript.GetLanguage())
++	if err != nil {
++		t.Fatal(err)
++	}
++	ast := tree.NewBuilder(javascript.GetLanguage(), content, parsed, 5, nil).Build()
++	ctx, cancel := context.WithCancel(context.Background())
++	cancel()
++	set := &traceGateDetectorSet{}
++	rule := ruleset.BuiltinDatatypeRule
++	scanner := New(ctx, set, "fixture.js", nil,
++		traversalstrategy.NewCache(ast.NodeCount()),
++		cache.NewCache(ast, cache.NewShared([]*ruleset.Rule{rule})))
++	detections, err := scanner.Scan(ast.RootNode(), rule, traversalstrategy.Nested)
++	if detections != nil || !errors.Is(err, context.Canceled) || set.calls != 0 {
++		t.Fatalf("traversal cancellation changed: detections=%v error=%v calls=%d", detections, err, set.calls)
++	}
++}
+--- /dev/null
++++ b/pkg/scanner/ruleset/empty_scan_bundled_test.go
+@@ -0,0 +1,53 @@
++package ruleset_test
++
++import (
++	"crypto/sha256"
++	_ "embed"
++	"fmt"
++	"testing"
++
++	"github.com/bearer/bearer/pkg/commands/process/settings"
++	settingsrules "github.com/bearer/bearer/pkg/commands/process/settings/rules"
++	"github.com/bearer/bearer/pkg/scanner/ruleset"
++	"gopkg.in/yaml.v3"
++)
++
++// Exact generation-pinned rule, including its real metadata and YAML defaults.
++//
++//go:embed testdata/static_asset_with_session.yml
++var pinnedExpressSessionRule []byte
++
++func TestEmptyScanEligibilityNormalBundledRulePreprocessing(t *testing.T) {
++	if fmt.Sprintf("%x", sha256.Sum256(pinnedExpressSessionRule)) != "49d67649d65f9a7367512b7c6d81f808184da2e9c9d634e8af5843f67d241103" {
++		t.Fatal("bundled rule pin changed")
++	}
++	var definition settings.RuleDefinition
++	if err := yaml.Unmarshal(pinnedExpressSessionRule, &definition); err != nil {
++		t.Fatal(err)
++	}
++	const topID = "javascript_express_static_asset_with_session"
++	if definition.Metadata == nil || definition.Metadata.ID != topID {
++		t.Fatal("original public rule identity changed")
++	}
++	preprocessed := settingsrules.BuildRules(map[string]settings.RuleDefinition{topID: definition}, map[string]struct{}{topID: {}})
++	set, err := ruleset.New("javascript", preprocessed)
++	if err != nil {
++		t.Fatal(err)
++	}
++	parent, err := set.RuleByID(topID + "_session")
++	if err != nil {
++		t.Fatal(err)
++	}
++	leaf, err := set.RuleByID(topID + "_session_init")
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !parent.EmptyScanMemoEligible() || parent.EmptyScanMemoLeaf() != leaf || parent.Type() != ruleset.RuleTypeAuxiliary || leaf.Type() != ruleset.RuleTypeAuxiliary {
++		t.Fatal("real bundled/preprocessed closure silently lost optimization")
++	}
++	for _, rule := range set.Rules() {
++		if rule != parent && rule.EmptyScanMemoEligible() {
++			t.Fatalf("unreviewed bundled rule %s became eligible", rule.ID())
++		}
++	}
++}
+--- /dev/null
++++ b/pkg/scanner/ruleset/empty_scan_shape.go
+@@ -0,0 +1,94 @@
++package ruleset
++
++// Lomo modification: memoize only the reviewed immutable auxiliary closure.
++import (
++	"reflect"
++
++	"github.com/bearer/bearer/pkg/commands/process/settings"
++	"github.com/bearer/bearer/pkg/report/customdetectors"
++)
++
++// IDs identify references inside the actual closure; no fixed ID authorizes
++// caching. Compare the entire settings Rule, including fields that today do
++// not participate in matching, so newly introduced semantics fail closed.
++// This intentionally accepts just the reviewed two-node acyclic shape.
++func reviewedEmptyScanClosure(languageID string, candidate *settings.Rule, settingsRules map[string]*settings.Rule) *settings.Rule {
++	if languageID != "javascript" || candidate == nil || len(candidate.Patterns) != 1 || len(candidate.Patterns[0].Filters) != 1 {
++		return nil
++	}
++	childID := candidate.Patterns[0].Filters[0].Detection
++	child := settingsRules[childID]
++	if child == nil || childID == "" || candidate.Id == childID || child.Id != childID {
++		return nil
++	}
++	expected := &settings.Rule{
++		Id: candidate.Id, Type: customdetectors.TypeVerifier,
++		Languages: []string{"javascript"}, IsAuxilary: true,
++		Patterns: []settings.RulePattern{{
++			Pattern: "app.use($<SESSION_MIDDLEWARE>)",
++			Filters: []settings.PatternFilter{{
++				Variable: "SESSION_MIDDLEWARE", Detection: childID, Scope: settings.RESULT_SCOPE,
++			}},
++		}},
++	}
++	expectedChild := &settings.Rule{
++		Id: childID, Type: customdetectors.TypeVerifier,
++		Languages: []string{"javascript"}, IsAuxilary: true,
++		Patterns: []settings.RulePattern{{Pattern: "session()"}},
++	}
++	if !reflect.DeepEqual(candidate, expected) || !reflect.DeepEqual(child, expectedChild) {
++		return nil
++	}
++	return child
++}
++
++// Called once after types and sanitizer bindings exist and before detector
++// compilation. Both referenced Rules must really be auxiliary, so a trigger
++// that promotes either node to a top-level rule disables the optimization.
++func bindReviewedEmptyScanClosure(languageID string, settingsRules map[string]*settings.Rule, actual map[string]*Rule) {
++	for _, rule := range actual {
++		if rule.ruleType != RuleTypeAuxiliary || rule.sanitizerRule != nil {
++			continue
++		}
++		childSettings := reviewedEmptyScanClosure(languageID, settingsRules[rule.id], settingsRules)
++		if childSettings == nil {
++			continue
++		}
++		child := actual[childSettings.Id]
++		if child == nil || child.ruleType != RuleTypeAuxiliary || child.sanitizerRule != nil {
++			continue
++		}
++		// Eligible slices contain only immutable strings, the exact one flat
++		// filter, and its strings. Deep copies detach all mutable slice aliases.
++		rule.patterns = copyReviewedPatterns(rule.patterns)
++		child.patterns = copyReviewedPatterns(child.patterns)
++		rule.emptyScanMemoEligible = true
++		rule.emptyScanMemoImmutable = true
++		child.emptyScanMemoImmutable = true
++		rule.emptyScanMemoLeaf = child
++	}
++}
++
++func copyReviewedPatterns(patterns []settings.RulePattern) []settings.RulePattern {
++	result := append([]settings.RulePattern(nil), patterns...)
++	for i := range result {
++		if result[i].Filters != nil {
++			result[i].Filters = append([]settings.PatternFilter(nil), result[i].Filters...)
++		}
++	}
++	return result
++}
++
++func (rule *Rule) EmptyScanMemoEligible() bool {
++	return rule != nil && rule.emptyScanMemoEligible
++}
++
++// The scanner must still prove that no active scan of either closure member
++// can produce an original cycle error before it uses a cached empty result.
++// This method exposes the exact immutable leaf pointer for that guard.
++func (rule *Rule) EmptyScanMemoLeaf() *Rule {
++	if rule == nil || !rule.emptyScanMemoEligible {
++		return nil
++	}
++	return rule.emptyScanMemoLeaf
++}
+--- /dev/null
++++ b/pkg/scanner/ruleset/empty_scan_shape_test.go
+@@ -0,0 +1,112 @@
++package ruleset
++
++import (
++	"testing"
++
++	"github.com/bearer/bearer/pkg/commands/process/settings"
++	"github.com/bearer/bearer/pkg/report/customdetectors"
++)
++
++func shapeFixture(rootID, leafID string) map[string]*settings.Rule {
++	return map[string]*settings.Rule{
++		rootID: {
++			Id: rootID, Type: customdetectors.TypeVerifier, Languages: []string{"javascript"}, IsAuxilary: true,
++			Patterns: []settings.RulePattern{{Pattern: "app.use($<SESSION_MIDDLEWARE>)", Filters: []settings.PatternFilter{{Variable: "SESSION_MIDDLEWARE", Detection: leafID, Scope: settings.RESULT_SCOPE}}}},
++		},
++		leafID: {
++			Id: leafID, Type: customdetectors.TypeVerifier, Languages: []string{"javascript"}, IsAuxilary: true,
++			Patterns: []settings.RulePattern{{Pattern: "session()"}},
++		},
++	}
++}
++
++func shapeRule(t *testing.T, input map[string]*settings.Rule, rootID string) *Rule {
++	t.Helper()
++	set, err := New("javascript", input)
++	if err != nil {
++		t.Fatal(err)
++	}
++	rule, err := set.RuleByID(rootID)
++	if err != nil {
++		t.Fatal(err)
++	}
++	return rule
++}
++
++func TestEmptyScanEligibilityRequiresWholeShapeNotID(t *testing.T) {
++	for _, ids := range [][2]string{{"javascript_express_static_asset_with_session_session", "javascript_express_static_asset_with_session_session_init"}, {"renamed_parent", "renamed_leaf"}} {
++		input := shapeFixture(ids[0], ids[1])
++		if !shapeRule(t, input, ids[0]).EmptyScanMemoEligible() {
++			t.Fatal("reviewed shape refused under a consistent reference rename")
++		}
++	}
++	changes := map[string]func(map[string]*settings.Rule){
++		"parent_pattern": func(x map[string]*settings.Rule) { x["parent"].Patterns[0].Pattern = "other()" },
++		"leaf_pattern":   func(x map[string]*settings.Rule) { x["leaf"].Patterns[0].Pattern = "other()" },
++		"scope":          func(x map[string]*settings.Rule) { x["parent"].Patterns[0].Filters[0].Scope = settings.CURSOR_SCOPE },
++		"focus":          func(x map[string]*settings.Rule) { x["parent"].Patterns[0].Focus = "SESSION_MIDDLEWARE" },
++		"cycle":          func(x map[string]*settings.Rule) { x["parent"].Patterns[0].Filters[0].Detection = "parent" },
++		"missing_child":  func(x map[string]*settings.Rule) { delete(x, "leaf") },
++		"child_identity": func(x map[string]*settings.Rule) { x["leaf"].Id = "different" },
++		"imports": func(x map[string]*settings.Rule) {
++			x["parent"].Patterns[0].Filters[0].Imports = []settings.RuleReferenceImport{{Variable: "child", As: "parent"}}
++		},
++		"source":          func(x map[string]*settings.Rule) { x["parent"].Patterns[0].Filters[0].IsSource = true },
++		"sanitizer":       func(x map[string]*settings.Rule) { x["parent"].SanitizerRuleID = "leaf" },
++		"child_sanitizer": func(x map[string]*settings.Rule) { x["leaf"].SanitizerRuleID = "parent" },
++		"shared":          func(x map[string]*settings.Rule) { x["parent"].Type = customdetectors.TypeShared },
++		"parenting":       func(x map[string]*settings.Rule) { x["parent"].ParamParenting = true },
++		"stored":          func(x map[string]*settings.Rule) { x["parent"].Stored = true },
++		"languages":       func(x map[string]*settings.Rule) { x["parent"].Languages = []string{"javascript", "ruby"} },
++		"trigger":         func(x map[string]*settings.Rule) { x["leaf"].Trigger.RequiredDetections = []string{"parent"} },
++		"presence":        func(x map[string]*settings.Rule) { x["leaf"].DetectPresence = true },
++		"not":             func(x map[string]*settings.Rule) { x["parent"].Patterns[0].Filters[0].Not = &settings.PatternFilter{} },
++		"either": func(x map[string]*settings.Rule) {
++			x["parent"].Patterns[0].Filters[0].Either = []settings.PatternFilter{{}}
++		},
++	}
++	for name, change := range changes {
++		t.Run(name, func(t *testing.T) {
++			input := shapeFixture("parent", "leaf")
++			change(input)
++			if reviewedEmptyScanClosure("javascript", input["parent"], input) != nil {
++				t.Fatal("altered closure authorized")
++			}
++		})
++	}
++}
++
++func TestEmptyScanEligiblePatternsAreImmutableCopies(t *testing.T) {
++	input := shapeFixture("parent", "leaf")
++	rule := shapeRule(t, input, "parent")
++	leaf := rule.EmptyScanMemoLeaf()
++	if leaf == nil {
++		t.Fatal("missing exact closure leaf")
++	}
++	input["parent"].Patterns[0].Pattern = "changed()"
++	input["parent"].Patterns[0].Filters[0].Detection = "changed"
++	input["leaf"].Patterns[0].Pattern = "changed()"
++	returned := rule.Patterns()
++	returned[0].Filters[0].Detection = "changed"
++	returned[0].Pattern = "changed()"
++	leafReturned := leaf.Patterns()
++	leafReturned[0].Pattern = "changed()"
++	if rule.Patterns()[0].Pattern != "app.use($<SESSION_MIDDLEWARE>)" || rule.Patterns()[0].Filters[0].Detection != "leaf" || leaf.Patterns()[0].Pattern != "session()" {
++		t.Fatal("compiled closure aliases mutable input or returned settings")
++	}
++}
++
++func TestEmptyScanEligibilityRejectsTriggerPromotionAndLeafDependencies(t *testing.T) {
++	for _, member := range []string{"parent", "leaf"} {
++		input := shapeFixture("parent", "leaf")
++		input["external"] = &settings.Rule{Id: "external", Type: customdetectors.TypeVerifier, Languages: []string{"javascript"}, Patterns: []settings.RulePattern{{Pattern: "other()"}}, Trigger: settings.RuleTrigger{RequiredDetections: []string{member}}}
++		if shapeRule(t, input, "parent").EmptyScanMemoEligible() {
++			t.Fatalf("trigger-promoted %s authorized", member)
++		}
++	}
++	input := shapeFixture("parent", "leaf")
++	input["leaf"].Patterns[0].Filters = []settings.PatternFilter{{Variable: "ARG", Detection: "parent", Scope: settings.NESTED_SCOPE}}
++	if reviewedEmptyScanClosure("javascript", input["parent"], input) != nil {
++		t.Fatal("leaf dependency cycle authorized")
++	}
++}
+--- a/pkg/scanner/ruleset/ruleset.go
++++ b/pkg/scanner/ruleset/ruleset.go
+@@ -25,11 +25,14 @@
+ }
+ 
+ type Rule struct {
+-	index         int
+-	id            string
+-	ruleType      RuleType
+-	sanitizerRule *Rule
+-	patterns      []settings.RulePattern
++	index                  int
++	id                     string
++	ruleType               RuleType
++	sanitizerRule          *Rule
++	patterns               []settings.RulePattern
++	emptyScanMemoEligible  bool
++	emptyScanMemoImmutable bool
++	emptyScanMemoLeaf      *Rule
+ }
+ 
+ func New(languageID string, settingsRules map[string]*settings.Rule) (*Set, error) {
+@@ -81,6 +84,8 @@
+ 
+ 		rule.sanitizerRule = sanitizerRule
+ 	}
++
++	bindReviewedEmptyScanClosure(languageID, settingsRules, rulesByID)
+ 
+ 	return &Set{
+ 		rules:     rules,
+@@ -158,5 +163,8 @@
+ }
+ 
+ func (rule *Rule) Patterns() []settings.RulePattern {
++	if rule.emptyScanMemoImmutable {
++		return copyReviewedPatterns(rule.patterns)
++	}
+ 	return rule.patterns
+ }
+--- /dev/null
++++ b/pkg/scanner/ruleset/testdata/static_asset_with_session.yml
+@@ -0,0 +1,53 @@
++patterns:
++  - pattern: |
++      {
++        $<SESSION>
++        $<!>$<STATIC>
++      }
++    filters:
++      - variable: SESSION
++        detection: javascript_express_static_asset_with_session_session
++      - variable: STATIC
++        detection: javascript_express_static_asset_with_session_static
++auxiliary:
++  - id: javascript_express_static_asset_with_session_session
++    patterns:
++      - pattern: app.use($<SESSION_MIDDLEWARE>)
++        filters:
++          - variable: SESSION_MIDDLEWARE
++            detection: javascript_express_static_asset_with_session_session_init
++            scope: result
++  - id: javascript_express_static_asset_with_session_session_init
++    patterns:
++      - session()
++  - id: javascript_express_static_asset_with_session_static
++    patterns:
++      - pattern: app.use($<STATIC_MIDDLEWARE>)
++        filters:
++          - variable: STATIC_MIDDLEWARE
++            detection: javascript_express_static_asset_with_session_static_init
++            scope: result
++  - id: javascript_express_static_asset_with_session_static_init
++    patterns:
++      - express.static()
++languages:
++  - javascript
++metadata:
++  description: Usage of session on static asset (CSRF)
++  remediation_message: |-
++    ## Description
++
++    Enabling sessions for static assets can inadvertently expose your application to Cross-Site Request Forgery (CSRF) attacks. This vulnerability arises because static assets, like images and stylesheets, are often cached by intermediary services such as Content Delivery Networks (CDNs). If these assets are served with session information, attackers can exploit this to hijack a user's session.
++
++    ## Remediations
++
++    - **Do** ensure that static resources are served prior to session initialization in your application's middleware order. This practice prevents session cookies from being unnecessarily attached to static assets, reducing the risk of CSRF attacks.
++      ```javascript
++      app.use(express.static(__dirname + "/public"));
++      app.use(session());
++      ```
++  cwe_id:
++    - 352
++  id: javascript_express_static_asset_with_session
++  documentation_url: https://docs.bearer.com/reference/rules/javascript_express_static_asset_with_session
++severity: medium
+diff --git a/pkg/commands/process/filelist/timeout/platform_test.go b/pkg/commands/process/filelist/timeout/platform_test.go
+new file mode 100644
+--- /dev/null
++++ b/pkg/commands/process/filelist/timeout/platform_test.go
+@@ -0,0 +1,73 @@
++package timeout
++
++import (
++	"github.com/bearer/bearer/pkg/commands/process/settings"
++	"io/fs"
++	"testing"
++	"time"
++)
++
++type sizedFile int64
++
++func (s sizedFile) Name() string       { return "fixture.js" }
++func (s sizedFile) Size() int64        { return int64(s) }
++func (s sizedFile) Mode() fs.FileMode  { return 0600 }
++func (s sizedFile) ModTime() time.Time { return time.Time{} }
++func (s sizedFile) IsDir() bool        { return false }
++func (s sizedFile) Sys() any           { return nil }
++
++func TestFileTimeoutPlatformAssignment(t *testing.T) {
++	config := settings.Config{Worker: settings.WorkerOptions{
++		TimeoutFileMinimum:        settings.TimeoutFileMinimum,
++		TimeoutFileMaximum:        settings.TimeoutFileMaximum,
++		TimeoutFileBytesPerSecond: settings.TimeoutFileBytesPerSecond,
++	}}
++	for _, size := range []int64{0, 1, 999, 1000, 4999, 5000, 5999, 6000, 29999, 30000, 31000, 960048, 1048576} {
++		base := time.Duration(size/1000) * time.Second
++		if base < 5*time.Second {
++			base = 5 * time.Second
++		}
++		if base > 30*time.Second {
++			base = 30 * time.Second
++		}
++		for _, factor := range []int{0, 10, 52, 78} {
++			config.Worker.FileTimeoutFactor = factor
++			expected := base
++			if factor > 0 {
++				expected = expected * time.Duration(factor) / 10
++			}
++			first, second := Assign(sizedFile(size), config), Assign(sizedFile(size), config)
++			if first != expected || second != expected {
++				t.Fatalf("size=%d factor=%d got=%v/%v want=%v", size, factor, first, second, expected)
++			}
++		}
++	}
++}
++
++func TestFileTimeoutInvalidFactorFailsClosed(t *testing.T) {
++	for _, factor := range []int{-1, 1, 2, 3, 26, 39, 40, 99} {
++		func() {
++			defer func() {
++				if recover() == nil {
++					t.Errorf("accepted factor %d", factor)
++				}
++			}()
++			Assign(sizedFile(0), settings.Config{Worker: settings.WorkerOptions{TimeoutFileBytesPerSecond: 1000, FileTimeoutFactor: factor}})
++		}()
++	}
++}
++
++func TestFileTimeoutOverflowFailsClosed(t *testing.T) {
++	for _, factor := range []int{10, 52, 78} {
++		func() {
++			defer func() {
++				if recover() == nil {
++					t.Errorf("overflow factor %d", factor)
++				}
++			}()
++			Assign(sizedFile(0), settings.Config{Worker: settings.WorkerOptions{
++				TimeoutFileBytesPerSecond: 1000, TimeoutFileMinimum: time.Duration(1<<63 - 1), FileTimeoutFactor: factor,
++			}})
++		}()
++	}
++}
+diff --git a/pkg/commands/process/filelist/timeout/timeout.go b/pkg/commands/process/filelist/timeout/timeout.go
+--- a/pkg/commands/process/filelist/timeout/timeout.go
++++ b/pkg/commands/process/filelist/timeout/timeout.go
+@@ -21,5 +21,17 @@
+ 		}
+ 	}
+ 
+-	return timeout
++	// Multiply the computed Mac duration once, after its size/min/max selection.
++	// Zero retains the upstream behavior for existing programmatic callers.
++	factor := config.Worker.FileTimeoutFactor
++	if factor == 0 {
++		factor = 10
++	}
++	if factor != 10 && factor != 52 && factor != 78 {
++		panic("invalid file timeout factor")
++	}
++	if timeout < 0 || timeout > time.Duration(1<<63-1)/time.Duration(factor) {
++		panic("file timeout overflow")
++	}
++	return timeout * time.Duration(factor) / 10
+ }
+diff --git a/pkg/commands/process/settings/loader/loader.go b/pkg/commands/process/settings/loader/loader.go
+--- a/pkg/commands/process/settings/loader/loader.go
++++ b/pkg/commands/process/settings/loader/loader.go
+@@ -3,6 +3,7 @@
+ import (
+ 	"errors"
+ 	"fmt"
++	"os"
+ 	"slices"
+ 
+ 	"github.com/bearer/bearer/pkg/commands/process/settings"
+@@ -21,6 +22,11 @@
+ 	engine engine.Engine,
+ 	foundLanguageIDs []string,
+ ) (settings.Config, error) {
++	factor, err := settings.FileTimeoutFactor(os.Getenv("KODESEC_SCAN_PLATFORM"))
++	if err != nil {
++		return settings.Config{}, err
++	}
++
+ 	policies, err := policies.Load()
+ 	if err != nil {
+ 		return settings.Config{}, fmt.Errorf("failed to load policies: %w", err)
+@@ -46,6 +52,7 @@
+ 	config := settings.Config{
+ 		Client: opts.Client,
+ 		Worker: settings.WorkerOptions{
++			FileTimeoutFactor:         factor,
+-			Timeout:                   settings.Timeout,
++			Timeout:                   settings.ScanTimeout(factor),
+ 			TimeoutFileMinimum:        settings.TimeoutFileMinimum,
+ 			TimeoutFileMaximum:        settings.TimeoutFileMaximum,
+diff --git a/pkg/commands/process/settings/platform.go b/pkg/commands/process/settings/platform.go
+new file mode 100644
+--- /dev/null
++++ b/pkg/commands/process/settings/platform.go
+@@ -0,0 +1,35 @@
++package settings
++
++import (
++	"fmt"
++	"time"
++)
++
++// ScanTimeout preserves the independent Mac cap and extends only new VM work.
++func ScanTimeout(factor int) time.Duration {
++	switch factor {
++	case 10:
++		return Timeout
++	case 52:
++		return Timeout * 26 / 10
++	case 78:
++		return Timeout * 39 / 10
++	default:
++		panic("invalid scanner timeout factor")
++	}
++}
++
++// FileTimeoutFactor returns exact tenths for the installation-owned lanes.
++// Empty preserves upstream timing; native Windows and Remote WSL both use windows.
++func FileTimeoutFactor(platform string) (int, error) {
++	switch platform {
++	case "", "mac":
++		return 10, nil
++	case "linux":
++		return 52, nil
++	case "windows":
++		return 78, nil
++	default:
++		return 0, fmt.Errorf("invalid scanner platform")
++	}
++}
+diff --git a/pkg/commands/process/settings/platform_test.go b/pkg/commands/process/settings/platform_test.go
+new file mode 100644
+--- /dev/null
++++ b/pkg/commands/process/settings/platform_test.go
+@@ -0,0 +1,38 @@
++package settings
++
++import (
++	"testing"
++	"time"
++)
++
++func TestFileTimeoutPlatform(t *testing.T) {
++	for platform, expected := range map[string]int{"": 10, "mac": 10, "linux": 52, "windows": 78} {
++		actual, err := FileTimeoutFactor(platform)
++		if err != nil || actual != expected {
++			t.Fatalf("%q: %d %v", platform, actual, err)
++		}
++	}
++	for _, platform := range []string{"Linux", "wsl", "2", " linux", "linux\n", "unlimited"} {
++		if actual, err := FileTimeoutFactor(platform); err == nil || actual != 0 {
++			t.Fatalf("accepted %q", platform)
++		}
++	}
++}
++
++func TestScanTimeoutKeepsIndependentCap(t *testing.T) {
++	for factor, expected := range map[int]time.Duration{10: 600 * time.Second, 52: 1560 * time.Second, 78: 2340 * time.Second} {
++		if actual := ScanTimeout(factor); actual != expected {
++			t.Fatalf("factor=%d got=%v want=%v", factor, actual, expected)
++		}
++	}
++	for _, factor := range []int{0, 1, -1, 26, 39, 40} {
++		func() {
++			defer func() {
++				if recover() == nil {
++					t.Errorf("accepted factor %d", factor)
++				}
++			}()
++			ScanTimeout(factor)
++		}()
++	}
++}
+diff --git a/pkg/commands/process/settings/settings.go b/pkg/commands/process/settings/settings.go
+--- a/pkg/commands/process/settings/settings.go
++++ b/pkg/commands/process/settings/settings.go
+@@ -29,6 +29,8 @@
+ )
+ 
+ type WorkerOptions struct {
++	// Assigned only from the validated host lane before file discovery.
++	FileTimeoutFactor         int           `json:"-" yaml:"-" mapstructure:"-"`
+ 	Timeout                   time.Duration `mapstructure:"timeout" json:"timeout" yaml:"timeout"`
+ 	TimeoutFileMinimum        time.Duration `mapstructure:"timeout-file-min" json:"timeout-file-min" yaml:"timeout-file-min"`
+ 	TimeoutFileMaximum        time.Duration `mapstructure:"timeout-file-max"  json:"timeout-file-max" yaml:"timeout-file-max"`

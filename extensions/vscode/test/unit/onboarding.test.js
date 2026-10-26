@@ -1,0 +1,31 @@
+const assert = require('node:assert/strict');
+const test = require('node:test');
+const { SetupProgress, SETUP_CONTEXT_PREFIX } = require('../../dist/onboarding.js');
+
+test('walkthrough contexts require current observed outcomes and refuse incomplete scans or policy-only protection', () => {
+  const values = new Map();
+  const progress = new SetupProgress((key, value) => values.set(key, value));
+  const value = step => values.get(`${SETUP_CONTEXT_PREFIX}${step}`);
+  assert([...values.values()].every(value => value === false));
+  progress.backend(true); progress.connection(true, true, false);
+  assert.equal(value('backend'), true); assert.equal(value('connection'), false);
+  progress.connection(true, true, true); assert.equal(value('connection'), true);
+  progress.selectRoots(['a', 'b']);
+  assert.equal(value('repositories'), false, 'selection alone grants no authority');
+  const completed = project => ({ project_id: project, status: 'completed', scanner_summary: { source_coverage: { complete: true } } });
+  progress.observeRepository('a', 1, completed(1));
+  progress.observeRepository('b', 2, { ...completed(2), status: 'partial' });
+  assert.equal(value('repositories'), true); assert.equal(value('scan'), false);
+  progress.observeRepository('b', 2, { ...completed(2), status: 'failed' });
+  assert.equal(value('scan'), false);
+  progress.observeRepository('b', 2, { ...completed(2), scanner_summary: { source_coverage: { complete: false } } });
+  assert.equal(value('scan'), false);
+  progress.observeRepository('b', 2, completed(2)); assert.equal(value('scan'), true);
+  progress.observedProtection('a', { enabled: true, observed_state: 'installed' });
+  assert.equal(value('protection'), false, 'a saved server policy is not a locally inspected hook');
+  progress.observedProtection('a', { state: 'installed', enabled: false, revision: 1, hookDigest: 'a'.repeat(64) });
+  assert.equal(value('protection'), true, 'an inspected Off choice is an explicit valid outcome');
+  progress.reviewed('not-selected'); assert.equal(value('review'), false);
+  progress.reviewed('a'); assert.equal(value('review'), true);
+  progress.invalidate(); assert([...values.values()].every(value => value === false));
+});

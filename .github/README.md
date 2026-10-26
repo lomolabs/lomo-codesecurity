@@ -1,0 +1,84 @@
+# Repository checks and maintenance
+
+The workflows use GitHub-hosted Ubuntu 24.04 machines, pinned action commits,
+bounded jobs and the repository's maintained commands. They do not publish a
+release, push code, install into a user's editor, send messages or use deployment
+secrets. Checkout credentials are not persisted. No dependency cache or test
+artifact upload is configured.
+
+## Test workflow
+
+`workflows/tests.yml` runs on pushes to `main`, pull requests targeting `main`,
+and manual dispatch. Each job has a 45-minute ceiling.
+
+| Job | What it runs |
+| --- | --- |
+| Public test baseline | `make test-public`: API/scanner unit suites, Web build, extension unit tests and Playwright contract checks. Explicit PostgreSQL/Docker integration opt-ins remain off. |
+| Headless Web journeys | Locked Playwright dependencies, the reviewed digest-pinned browser image, then the ordinary `npm --prefix tests/playwright test` runner. |
+| Canonical extension package | Locked extension dependencies and `test:package`, including package boundaries and reproducibility. The resulting VSIX remains on the ephemeral runner. |
+
+Python is selected as 3.12 and host Node.js as 24. The Linux browser phase runs
+inside the maintained pinned Playwright image, including that image's runtime
+and Chromium. It does not install a host browser or bypass the ordinary runner.
+
+The ordinary Web suite needs four available CPUs. GitHub currently assigns
+four CPUs to public Ubuntu 24.04 runners and two to private standard runners.
+The workflow explicitly fails if the minimum is absent; it does not replace
+the suite with a targeted run or loosen its budgets. Such a failure means no
+browser coverage was obtained. See [GitHub's runner specifications](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
+
+A passing workflow does not qualify Marketplace acquisition, the native editor
+journey, other platforms or a complete release. No browser result has been
+obtained merely by adding this workflow. See [release status](../docs/RELEASE_STATUS.md).
+
+## CodeQL
+
+`workflows/security.yml` analyzes Python, JavaScript/TypeScript and GitHub
+Actions only when the repository is public. If it is private, analysis jobs are
+skipped and must not be described as a security pass. This workflow does not
+assume a private-repository Code Security entitlement. See [CodeQL availability](https://docs.github.com/en/code-security/how-tos/find-and-fix-code-vulnerabilities/configure-code-scanning/configuring-advanced-setup-for-code-scanning).
+
+The analysis job has `security-events: write` solely to submit code-scanning
+results, alongside `contents: read`. Other workflows retain a read-only token.
+CodeQL database uploads, dependency caching, TRAP caching and debug artifacts
+are disabled in the workflow. Source extraction uses no build command. Results
+appear in GitHub code scanning once the public workflow has actually succeeded;
+no badge or clean-security claim is inferred from configuration.
+
+## Pinned actions
+
+These commits were resolved from the official repositories. Updating a version
+comment alone does not update the action; review and change the full commit pin.
+
+| Action | Reviewed tag | Commit |
+| --- | --- | --- |
+| `actions/checkout` | `v7.0.1` | [`3d3c42e5aac5ba805825da76410c181273ba90b1`](https://github.com/actions/checkout/commit/3d3c42e5aac5ba805825da76410c181273ba90b1) |
+| `actions/setup-node` | `v7.1.0` | [`949feb2413d6458794dcd2491c4babbbce0c15c1`](https://github.com/actions/setup-node/commit/949feb2413d6458794dcd2491c4babbbce0c15c1) |
+| `actions/setup-python` | `v7.1.0` | [`6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`](https://github.com/actions/setup-python/commit/6d4fd22b20465ccc0f7354476588e8df7c9ca0e0) |
+| `github/codeql-action` | `v4` | [`9b3254085494b55a0f7c4c2b3d2d52cc712ce370`](https://github.com/github/codeql-action/commit/9b3254085494b55a0f7c4c2b3d2d52cc712ce370) |
+
+## Manual dependency maintenance
+
+No Dependabot configuration or automated dependency pull-request schedule is
+enabled for this preview. A maintainer can review an update deliberately:
+
+1. Read the upstream release notes, security advisories and license changes.
+   Confirm an action's tag resolves to its reviewed commit in the official
+   repository; retain full commit pins in workflows.
+2. Update the relevant manifest and lockfile together. For Node dependencies,
+   use the selected component's npm tooling and review the lockfile diff. For
+   Python production dependencies and scanner inputs, follow the existing
+   repository lock-generation and [scanner-maintenance contracts](../docs/SCANNER_TOOLS.md).
+3. Run the affected focused tests and `make test-public`. For Web changes run
+   the ordinary browser suite; for extension distribution changes run
+   `npm --prefix extensions/vscode run test:package`.
+4. Review the actual diff and results before merging. Preserve third-party
+   notices. Do not refresh scanner-data timestamps without new reviewed data,
+   regenerate unexplained screenshots, or treat a skipped check as passing.
+
+`CODEOWNERS` routes reviews for workflow, security, host-tooling and packaging
+changes. It does not create branch protection. Review requirements must account
+for the available independent maintainers; a sole owner cannot approve their
+own change.
+
+Release automation is held separately; see [release preparation](RELEASE.md).

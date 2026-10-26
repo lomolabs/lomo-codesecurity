@@ -1,0 +1,4 @@
+# The API project itself is supplied separately to `uv pip compile`.
+# Its exact build backend is installed before the project package is built
+# without isolation or dependency resolution in the control image.
+setuptools==75.6.0

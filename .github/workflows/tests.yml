@@ -1,0 +1,107 @@
+name: Public checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  baseline:
+    name: Public test baseline
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Run public baseline
+        run: make test-public
+
+  web:
+    name: Headless Web journeys
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      KODESEC_PLAYWRIGHT_HEADED: '0'
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Check the browser runner CPU requirement
+        run: |
+          node --input-type=module <<'NODE'
+          import { availableParallelism } from 'node:os';
+          import { PLAYWRIGHT_OFFLINE_BROWSER_CPUS } from './tests/playwright/scripts/compose-harness-lib.mjs';
+          const actual = availableParallelism();
+          if (actual < PLAYWRIGHT_OFFLINE_BROWSER_CPUS) {
+            throw new Error(`The ordinary Web suite requires ${PLAYWRIGHT_OFFLINE_BROWSER_CPUS} available CPUs; this runner has ${actual}. Private GitHub standard runners may be too small. No browser coverage was obtained.`);
+          }
+          NODE
+      - name: Install locked browser-test dependencies
+        run: npm --prefix tests/playwright ci --ignore-scripts
+      - name: Prepare the reviewed Linux browser image
+        run: |
+          node --input-type=module <<'NODE'
+          import { spawnSync } from 'node:child_process';
+          import { PLAYWRIGHT_CONTAINER_IMAGE } from './tests/playwright/scripts/compose-harness-lib.mjs';
+          if (!/^mcr\.microsoft\.com\/playwright:v[0-9]+\.[0-9]+\.[0-9]+-noble@sha256:[a-f0-9]{64}$/.test(PLAYWRIGHT_CONTAINER_IMAGE)) {
+            throw new Error('Expected the reviewed, digest-pinned Playwright Noble image.');
+          }
+          const result = spawnSync('docker', ['pull', PLAYWRIGHT_CONTAINER_IMAGE], { stdio: 'inherit' });
+          if (result.error) throw result.error;
+          if (result.status !== 0) process.exit(result.status ?? 1);
+          NODE
+      - name: Run the ordinary maintained Web suite
+        run: npm --prefix tests/playwright test
+
+  package:
+    name: Canonical extension package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Install locked extension dependencies
+        run: npm --prefix extensions/vscode ci --ignore-scripts
+      - name: Verify package boundary and reproducibility
+        run: npm --prefix extensions/vscode run test:package

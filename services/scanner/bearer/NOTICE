@@ -1,0 +1,37 @@
+MODIFIED SOFTWARE — Lomo CodeSecurity
+
+This distribution contains Bearer 2.1.0 modified by Lomo CodeSecurity.
+Upstream: https://github.com/Bearer/bearer
+Upstream source commit: 814948ecc198a743b13a75a6bfd4688514285220
+Intended modified version: 2.1.0+lomo.1
+
+The cumulative lomo.patch preserves Python subscription tuple keys, avoids
+unnecessary trace formatting, preserves empty detector/cache results, skips
+unreachable outer pattern conjunction branches and adds bounded empty-result
+reuse for one verified immutable auxiliary-rule closure. It includes semantic,
+cycle, cancellation, scope, immutable-context and actual-reuse regressions.
+A completed empty traversal now also proves its visited children/alias closure,
+using a separate bounded pending bitset; incomplete or positive traversals
+publish no proof. Negative external-alias and invalidation tests cover reuse.
+One exact generated JavaScript statement-pair query collects candidate second
+siblings and materializes its original captures on demand, avoiding eager
+quadratic storage. Native-query differential tests cover capture order,
+cardinality, nested blocks, comments, Unicode and malformed source.
+The completed AST indexes collected raw queries. Shared rules with no possible
+query matches, and auxiliary root-variable patterns whose first bound reference
+is proven empty, avoid redundant traversal. Proofs use compiled structure, with
+bounded acyclic references and sanitizer, active-execution and unknown-shape
+fallbacks. Differential tests preserve positive findings, missing-variable
+errors, cancellation and the reachability of later filters.
+The validated installation lane scales the computed per-file analysis duration
+once by 1, 5.2 or 7.8 for Mac, Linux or Windows/WSL under D-021.
+Independent native whole-scan caps are 600, 1560 or 2340 seconds.
+Unset retains upstream timing;
+unknown lanes fail before discovery. This does not alter memory/source bounds,
+worker cleanup grace or incomplete-report rejection. Boundary-size and invalid
+factor controls cover assignment.
+Private phase, query, rule-work and CPU diagnostic probes are not included.
+
+Original licensing and copyright notices remain in the upstream source.
+Bearer and these modifications are distributed subject to the accompanying
+Elastic License 2.0 in LICENSE.txt. This notice does not grant trademark rights.
