@@ -2147,7 +2147,9 @@ def test_build_receipt_rejects_forgery_duplicate_json_and_replay(
     forged_root.chmod(0o700)
     forged = _build_receipt(forged_root)
     value = json.loads(forged.read_bytes())
-    value["image"]["architecture"] = "amd64"
+    value["image"]["architecture"] = (
+        "arm64" if cli.BUILD_ARCHITECTURE == "amd64" else "amd64"
+    )
     forged.write_bytes(cli._canonical_json_bytes(value))
     forged.chmod(0o600)
     with pytest.raises(cli.CandidateCliError, match="identity_invalid"):

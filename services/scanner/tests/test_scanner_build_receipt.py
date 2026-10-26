@@ -251,7 +251,7 @@ def test_exact_build_argv_is_fixed_and_uses_private_iidfile(tmp_path: Path) -> N
         "--pull",
         "--no-cache",
         "--network=default",
-        "--platform=linux/arm64",
+        f"--platform={builder.PLATFORM}",
         f"--file={context / builder.DOCKERFILE_PATH}",
         f"--tag={tag}",
         f"--iidfile={iidfile}",
@@ -399,7 +399,10 @@ def test_stable_file_rejects_hardlink_and_detects_same_fd_drift(
     ("change", "message"),
     [
         ({"Os": "darwin"}, "identity"),
-        ({"Architecture": "amd64"}, "identity"),
+        (
+            {"Architecture": "arm64" if builder.ARCHITECTURE == "amd64" else "amd64"},
+            "identity",
+        ),
         ({"RepoTags": ["lomo-kodesec-scanner:other"]}, "identity"),
         ({"Config": {"User": "root"}}, "security"),
     ],
