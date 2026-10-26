@@ -1,6 +1,6 @@
 import { referenceTest } from './support/reference-viewport.js';
 import { waitForRouteReady } from './support/route-ready.js';
-import { APIRequestContext, expect, Locator, Page, Request, Response, test } from '@playwright/test';
+import { APIRequestContext, expect, Locator, Page, Request, Response, Route, test } from '@playwright/test';
 
 import { installRuntimeGuards } from './support/quality.js';
 import { BULK_LIFECYCLE_ACTIONS, prepareBulkFindingSelection, performBulkFindingAction,
@@ -2986,6 +2986,74 @@ test('hard reload waits for held API reads without aborting their evidence', asy
   } finally {
     releaseHeld();
     await Promise.allSettled([read, reload]);
+  }
+});
+
+test('Advisor terminal reconciliation preserves an in-flight post-command refresh', async ({ page, request, baseURL }) => {
+  if (!baseURL) throw new Error('Playwright baseURL is required.');
+  await request.post('/__test/reset', { data: { profile: 'fresh', generation: 1 } });
+  const collection = await request.get('/v1/advisor/providers').then((response) => response.json()) as { revision: number };
+  const added = await request.post('/v1/advisor/providers', { data: {
+    expected_revision: collection.revision,
+    provider: { id: 'owned-slow-direct', name: 'Owned slow Direct', transport: 'direct', priority: 1, enabled: true,
+      base_url: 'http://192.0.2.44:11434', model: 'fixture-advisor-model:latest', model_digest: 'b'.repeat(64),
+      ssh_host: null, ssh_port: null, ssh_user: null },
+  } });
+  expect(added.ok()).toBe(true);
+  expect((await request.post('/__test/advisor-provider-authorize', { data: { provider_id: 'owned-slow-direct' } })).ok()).toBe(true);
+  const guards = await installRuntimeGuards(page, new URL(baseURL).origin);
+  await openRoute(page, 'Settings');
+  await guards.waitForApiIdle();
+  guards.assertClean();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let heldRequest: Request | undefined;
+  let heldFailed = false;
+  let heldFinished = false;
+  let commandPosted = false;
+  const healthUrl = new URL('/healthz', baseURL).href;
+  const healthReads: Request[] = [];
+  const finishedReads = new Set<Request>();
+  const order: string[] = [];
+  page.on('request', (candidate) => {
+    if (candidate.method() === 'POST' && new URL(candidate.url()).pathname === '/v1/advisor/providers/owned-slow-direct/commands') commandPosted = true;
+    if (commandPosted && candidate.method() === 'GET' && candidate.url() === healthUrl) {
+      healthReads.push(candidate);
+      order.push(`read-${healthReads.length}`);
+    }
+  });
+  page.on('requestfailed', (candidate) => { if (candidate === heldRequest) heldFailed = true; });
+  page.on('requestfinished', (candidate) => {
+    finishedReads.add(candidate);
+    if (candidate === heldRequest) { heldFinished = true; order.push('held-finished'); }
+  });
+  const holdHealth = async (route: Route) => {
+    if (!commandPosted || heldRequest) return route.fallback();
+    heldRequest = route.request();
+    await gate;
+    await route.fallback();
+  };
+  await page.route(healthUrl, holdHealth);
+  const card = page.locator('#advisor-providers .advisor-provider-card', { hasText: 'Owned slow Direct' });
+  try {
+    await card.getByRole('button', { name: 'Test connection', exact: true }).click();
+    await expect.poll(() => Boolean(heldRequest), { message: 'post-command refresh reached its held read' }).toBe(true);
+    expect(commandPosted).toBe(true);
+    // The provider's terminal poll can finish while the first dashboard read
+    // is held. Its reconciliation must queue behind that read, not cancel it.
+    await expect(card.getByText('available', { exact: true })).toBeVisible();
+    expect(heldFailed, 'terminal provider reconciliation must retain the current read owner').toBe(false);
+    expect(heldFinished).toBe(false);
+    release();
+    await guards.waitForApiIdle();
+    expect(heldFinished).toBe(true);
+    expect(healthReads.length).toBeGreaterThanOrEqual(2);
+    expect(finishedReads.has(healthReads[1])).toBe(true);
+    expect(order.indexOf('read-2')).toBeGreaterThan(order.indexOf('held-finished'));
+    guards.assertClean();
+  } finally {
+    release();
+    await page.unroute(healthUrl, holdHealth);
   }
 });
 

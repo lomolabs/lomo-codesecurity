@@ -3275,6 +3275,11 @@ function Workbench() {
     });
   }, [captureRouteErrorOwnership, clearRouteError, focusFinding, loadScanDetails, reportRouteError, selectScan, updateIdeCapabilities]);
 
+  const reconcileSettingsMutation = useCallback(() => {
+    resetLocalAdvisorDiscoveryPollBudget();
+    return refresh(undefined, 'mutation');
+  }, [refresh, resetLocalAdvisorDiscoveryPollBudget]);
+
   const hasActiveWork = useMemo(
     () => jobs.some((job) => activeWorkStatuses.has(job.status))
       || scans.some((scan) => activeWorkStatuses.has(scan.status))
@@ -4804,7 +4809,7 @@ function Workbench() {
             onIdeCapabilitiesChange={updateIdeCapabilities}
             onOpenProjects={() => navigate('projects')}
             onAdvisorDiscoveryRetry={resetLocalAdvisorDiscoveryPollBudget}
-            onSaved={refresh}
+            onSaved={reconcileSettingsMutation}
           />
         ) : null}
       </main>

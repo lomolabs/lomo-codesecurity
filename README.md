@@ -26,7 +26,7 @@ publication is pending. See [tested scope and known issues](docs/RELEASE_STATUS.
 
 ## In VS Code
 
-[![VS Code with an expanded CodeSecurity findings sidebar, finding details in a code hover and three diagnostics in the Problems panel](docs/images/vscode-integration.jpg)](docs/images/vscode-integration.jpg)
+[![VS Code with an expanded CodeSecurity findings sidebar, finding details in a code hover and three diagnostics in the Problems panel](docs/images/vscode-integration.png)](docs/images/vscode-integration.png)
 
 *The real VS Code extension with synthetic demonstration finding data. Review
 findings in the sidebar, inspect their lifecycle and gate effect in a code hover,
