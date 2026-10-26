@@ -1962,14 +1962,20 @@ referenceTest('Findings preserves complete evidence and reachable controls with 
     await copy.press('Enter');
     expect(await page.evaluate(() => (window as Window & { __copiedEvidence?: string }).__copiedEvidence)).toBe(originalCode);
     await evidence.focus();
+    // Each width reuses the same evidence pane. Reset with the real keyboard
+    // before End so a retained bottom position cannot chain scrolling to the page.
+    await evidence.press('Home');
+    await expect.poll(() => evidence.evaluate((element) => element.scrollTop)).toBe(0);
     await evidence.press('End');
-    await expect.poll(() => evidence.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+    await expect.poll(() => evidence.evaluate((element) =>
+      Math.abs(element.scrollHeight - element.clientHeight - element.scrollTop))).toBeLessThanOrEqual(1);
     const lifecycle = detail.locator('.finding-action-menu');
     await lifecycle.locator('summary').focus();
     await lifecycle.locator('summary').press('Enter');
     await expect(lifecycle).toHaveAttribute('open', '');
     const lastAction = lifecycle.getByRole('button', { name: 'Needs review', exact: true });
     await lastAction.focus();
+    await expect(lastAction).toBeFocused();
     await expect(lastAction).toBeInViewport();
     await lifecycle.locator('summary').press('Enter');
     await expect(lifecycle).not.toHaveAttribute('open', '');

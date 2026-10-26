@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from array import array
 from typing import Any
 
@@ -78,9 +79,8 @@ _SENSITIVE_COMPACT_SUFFIXES = (
     "token",
     "xamzsignature",
 )
-_URL_USERINFO = re.compile(
-    r"(?P<scheme>\b[A-Za-z][A-Za-z0-9+.-]*://)(?P<userinfo>[^/?#@\s]+)@"
-)
+_URL_SCHEME = re.compile(r"\b[A-Za-z][A-Za-z0-9+.-]*")
+_URL_USERINFO_SUFFIX = re.compile(r"[^/?#@\s]+@")
 _URL_QUERY_CREDENTIAL = re.compile(
     rf"(?P<prefix>[?&]{_SENSITIVE_NAME}=)(?P<value>[^&#\s]*)",
     re.IGNORECASE,
@@ -99,8 +99,31 @@ _KNOWN_TOKEN = re.compile(
     re.IGNORECASE,
 )
 _LONG_TOKEN = re.compile(r"(?<![A-Za-z0-9_])[A-Za-z0-9+/=_-]{32,}(?![A-Za-z0-9_])")
-_PEM_BEGIN = re.compile(r"-----BEGIN [A-Z0-9 ]*(?:PRIVATE KEY|SECRET)[A-Z0-9 ]*-----", re.IGNORECASE)
-_PEM_END = re.compile(r"-----END [A-Z0-9 ]*(?:PRIVATE KEY|SECRET)[A-Z0-9 ]*-----", re.IGNORECASE)
+_PEM_BEGIN = re.compile(r"-----BEGIN (?=[A-Z0-9 ]*(?:PRIVATE KEY|SECRET))[A-Z0-9 ]*+-----", re.IGNORECASE)
+_PEM_END = re.compile(r"-----END (?=[A-Z0-9 ]*(?:PRIVATE KEY|SECRET))[A-Z0-9 ]*+-----", re.IGNORECASE)
+
+
+def _url_userinfo_matches(content: str) -> Iterator[tuple[int, int, str]]:
+    # Visit disjoint scheme candidates instead of retrying every dotted suffix.
+    cursor = 0
+    while scheme := _URL_SCHEME.search(content, cursor):
+        cursor = scheme.end()
+        if content[cursor:cursor + 3] != "://":
+            continue
+        userinfo = _URL_USERINFO_SUFFIX.match(content, cursor + 3)
+        if userinfo is not None:
+            yield scheme.start(), userinfo.end(), scheme.group() + "://"
+            cursor = userinfo.end()
+
+
+def _redact_url_userinfo(content: str) -> str:
+    output: list[str] = []
+    cursor = 0
+    for start, end, scheme in _url_userinfo_matches(content):
+        output.extend((content[cursor:start], scheme, REDACTED, "@"))
+        cursor = end
+    output.append(content[cursor:])
+    return "".join(output)
 
 
 def _assignment_value_end(content: str, start: int) -> int:
@@ -210,7 +233,7 @@ def _redact_assignments(content: str) -> str:
 
 
 def _redact_credential_shapes(content: str) -> str:
-    content = _URL_USERINFO.sub(lambda match: f'{match.group("scheme")}{REDACTED}@', content)
+    content = _redact_url_userinfo(content)
     content = _URL_QUERY_CREDENTIAL.sub(lambda match: f'{match.group("prefix")}{REDACTED}', content)
     content = _redact_assignments(content)
     content = _BEARER_CREDENTIAL.sub(lambda match: f'{match.group("prefix")}{REDACTED}', content)

@@ -513,7 +513,8 @@ export function offlineBrowserServiceArguments({
     '--port', String(wsPort),
     '--path', wsPath,
     '--max-clients', '1',
-    '--artifacts-dir', '/tmp/kodesec-artifacts',
+    // Keep Playwright's owned per-browser directory and normal close cleanup.
+    // A fixed server directory retains discarded traces across worker sessions.
   ];
 }
 

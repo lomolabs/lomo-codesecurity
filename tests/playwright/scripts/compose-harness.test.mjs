@@ -711,11 +711,12 @@ test('offline browser service is exact, networkless, bounded, and mounts only lo
   assert.equal(args.includes('--unsafe'), false);
   assert.equal(args.includes('/workspace/lomo/tests/playwright'), false);
   assert.equal(args.includes('KODESEC_COMPOSE_STORAGE_STATE'), false);
-  assert.equal(args.at(-14), PLAYWRIGHT_CONTAINER_IMAGE);
-  assert.deepEqual(args.slice(-13), [
+  assert.equal(args.includes('--artifacts-dir'), false);
+  assert.equal(args.at(-12), PLAYWRIGHT_CONTAINER_IMAGE);
+  assert.deepEqual(args.slice(-11), [
     'node', `${PLAYWRIGHT_REMOTE_NODE_MODULES}/@playwright/test/cli.js`, 'run-server',
     '--host', '127.0.0.1', '--port', '43821', '--path', '/0123456789ab',
-    '--max-clients', '1', '--artifacts-dir', '/tmp/kodesec-artifacts',
+    '--max-clients', '1',
   ]);
 });
 

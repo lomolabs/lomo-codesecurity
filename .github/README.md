@@ -46,6 +46,15 @@ artifact. Its expected mismatch can continue to evidence upload; it never
 substitutes for the subsequent full ordinary suite or satisfies its assertions.
 Remove the label after reviewing the render environment and exact differences.
 Do not regenerate references to absorb an unexplained rendering regression.
+Apply the label before pushing the reviewed PR update; adding a label alone
+does not trigger this workflow.
+
+The Linux foundation references include the current top navigation, compact
+Findings and sectioned Settings. They were accepted after comparing all seven
+views at four widths against the previous sidebar layout and checking the
+recorded render environment. Pixel tolerance remains zero. Keyboard evidence
+tests reset a reused code pane with Home before End so each width exercises
+fresh scrolling rather than inheriting the previous width's bottom position.
 
 A passing workflow does not qualify Marketplace acquisition, the native editor
 journey, other platforms or a complete release. No browser result has been
