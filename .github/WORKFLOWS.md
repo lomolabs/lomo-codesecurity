@@ -86,10 +86,16 @@ assume a private-repository Code Security entitlement. See [CodeQL availability]
 
 The analysis job has `security-events: write` solely to submit code-scanning
 results, alongside `contents: read`. Other workflows retain a read-only token.
-CodeQL database uploads, dependency caching, TRAP caching and debug artifacts
+CodeQL database-bundle uploads, dependency caching, TRAP caching and debug artifacts
 are disabled in the workflow. Source extraction uses no build command. Results
 appear in GitHub code scanning once the public workflow has actually succeeded;
 no badge or clean-security claim is inferred from configuration.
+
+The pinned CodeQL action may retain overlay-base databases of this public source
+in GitHub Actions caches to speed later pull-request analysis. This is separate
+from its disabled database-bundle uploads, TRAP and dependency caches. Private
+source, runtime state and credentials must never enter those cache inputs;
+[eligible pull-request workflows can access base-branch caches](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#restrictions-for-accessing-a-cache).
 
 ## Pinned actions
 
