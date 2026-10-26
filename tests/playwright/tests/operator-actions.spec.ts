@@ -1697,7 +1697,9 @@ test('IDE authority: Settings reviews a no-paste IDE request while browser pairi
   await expect(clientRow).toContainText('active generation 1');
   await expect(clientRow).not.toContainText('authority expires');
   await pairing.getByRole('button', { name: 'Approve', exact: true }).click();
-  await expect(pairing.getByRole('status')).toContainText(`${enrollmentClientName} was approved. VS Code can now finish activation without a pasted key.`);
+  const approvedMessage = `${enrollmentClientName} was approved. VS Code can now finish activation without a pasted key.`;
+  await expect(pairing.getByRole('status').filter({ hasText: approvedMessage })).toContainText(approvedMessage);
+  await expect(pairing.getByText('Loading pending IDE requests…', { exact: true })).toHaveCount(0);
   await expect(pairing.getByRole('list', { name: 'Pending IDE access requests', exact: true })).toHaveCount(0);
   expect(decisionRequests).toBe(1);
 
@@ -3790,7 +3792,7 @@ test('[WEB-ACT-002] project registration and normal scan buttons persist the exa
   guards.assertClean();
 });
 
-test('project source, scan selectors, and complete-coverage controls preserve exact operator intent', async ({ page, request, baseURL }) => {
+test('project source and scan selectors preserve exact operator intent', async ({ page, request, baseURL }) => {
   if (!baseURL) throw new Error('Playwright baseURL is required.');
   const guards = await installRuntimeGuards(page, new URL(baseURL).origin);
   const mutations = mutationRequestLog(page);
@@ -3825,9 +3827,16 @@ test('project source, scan selectors, and complete-coverage controls preserve ex
     coverage: 'complete',
     acknowledge_limited_coverage: false,
   });
+  guards.assertClean();
+});
 
+test('complete-coverage controls preserve explicit limited-scan acknowledgment', async ({ page, request, baseURL }) => {
+  if (!baseURL) throw new Error('Playwright baseURL is required.');
+  // A fresh page keeps the previous scan's polling separate from this fixture
+  // reset, which deliberately replaces the server's projects and jobs.
   await request.post('/__test/reset', { data: { profile: 'scanner-preparation', generation: 2 } });
-  surface = await openRoute(page, 'Projects');
+  const guards = await installRuntimeGuards(page, new URL(baseURL).origin);
+  const surface = await openRoute(page, 'Projects');
   await acceptNextConfirmation(page, () => surface.getByRole('button', { name: 'Review Advanced Limited Scan', exact: true }).click());
   await expect(surface.getByRole('status').filter({ hasText: 'Advanced limited coverage acknowledged.' })).toBeVisible();
   await surface.getByRole('button', { name: 'Use complete coverage', exact: true }).click();

@@ -395,3 +395,44 @@ def test_json_redaction_is_idempotent_and_matches_scanner(value: Any) -> None:
     assert redact_json(api_result) == api_result
     assert scanner_redact_json(value) == api_result
     assert scanner_redact_json(scanner_redact_json(value)) == api_result
+
+
+@pytest.mark.parametrize(("source", "expected"), [
+    ("9.a://user:fixture@example.invalid/path", "9.a://[REDACTED]@example.invalid/path"),
+    ("_a://user:fixture@example.invalid", "_a://user:fixture@example.invalid"),
+    ("éa://user:fixture@example.invalid", "éa://user:fixture@example.invalid"),
+    ("a+b.c-d://user:fixture@host", "a+b.c-d://[REDACTED]@host"),
+    ("https://u@@host", "https://[REDACTED]@@host"),
+    ("a://one@host b://two@host", "a://[REDACTED]@host b://[REDACTED]@host"),
+    ("a.b.c without a URI", "a.b.c without a URI"),
+])
+def test_url_scheme_boundaries_preserve_redaction_and_scanner_parity(source: str, expected: str) -> None:
+    assert redact_text(source) == expected
+    assert scanner_redact_text(source) == expected
+
+
+def test_malformed_pem_labels_and_dotted_schemes_have_bounded_work() -> None:
+    program = r'''
+import sys
+from pathlib import Path
+root = Path(sys.argv[1])
+sys.path[:0] = [str(root / "apps/api"), str(root / "services/scanner")]
+from kodesec_api import redaction as api
+from kodesec_scanner import redaction as scanner
+label = "PRIVATE KEY " * 32768
+malformed_begin = "-----BEGIN " + label
+malformed_end = "-----BEGIN PRIVATE KEY-----\n-----END " + label
+dotted = "a." * 65536
+missing_userinfo_end = "https://" + "!" * 262144
+for module in (api, scanner):
+    assert module.redact_text(malformed_begin) == malformed_begin
+    assert module.redact_text(malformed_end) == "-----BEGIN PRIVATE KEY-----\n[REDACTED]"
+    assert module.redact_text(dotted) == dotted
+    assert module.redact_text(missing_userinfo_end) == missing_userinfo_end
+    assert module.redact_text(dotted + " a://fixture@host").endswith(" a://[REDACTED]@host")
+assert not api.contains_explicit_credential(dotted)
+assert not api.contains_explicit_credential(missing_userinfo_end)
+assert api.contains_explicit_credential(dotted + " a://fixture@host")
+'''
+    subprocess.run([sys.executable, "-B", "-c", program, str(REPOSITORY_ROOT)],
+                   check=True, capture_output=True, timeout=5)

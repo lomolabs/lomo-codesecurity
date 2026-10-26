@@ -1,10 +1,31 @@
 # Repository checks and maintenance
 
+## Intentional vulnerable fixtures
+
+`tests/scanner-runtime/fixtures/dependencies/positive` contains source-only
+positive controls. Django, PyYAML, requests and lodash are deliberately pinned
+to vulnerable versions so the scanners must detect them. They are not installed
+as application dependencies or deployed as sample services.
+
+The exact-directory entries in [dependabot.yml](dependabot.yml) ignore automatic
+upgrades only for those four fixture packages. Version-update PRs for those
+entries are disabled; security alerts remain enabled. Actual application and
+build dependencies retain their security-update behavior. Do not dismiss real
+application advisories or upgrade fixtures merely to make a dashboard green.
+Changing a fixture requires reviewing its expected scanner result as well.
+
+This uses dependency-specific ignores, not an `exclude-paths` assumption:
+[GitHub documents how security updates use the configuration](https://docs.github.com/en/code-security/how-tos/secure-your-supply-chain/secure-your-dependencies/configure-security-updates).
+
 The workflows use GitHub-hosted Ubuntu 24.04 machines, pinned action commits,
 bounded jobs and the repository's maintained commands. They do not publish a
 release, push code, install into a user's editor, send messages or use deployment
-secrets. Checkout credentials are not persisted. No dependency cache or test
-artifact upload is configured.
+secrets. Checkout credentials are not persisted. No dependency cache is configured.
+The browser job retains only its bounded runner receipt, normalized execution
+report, whitelisted render-environment JSON and PNG screenshots of synthetic
+test fixtures for seven days. These
+artifacts are visible with the repository. Raw execution reports, traces,
+HTML reports, dependency trees and runtime state are excluded.
 
 ## Test workflow
 
@@ -26,6 +47,31 @@ four CPUs to public Ubuntu 24.04 runners and two to private standard runners.
 The workflow explicitly fails if the minimum is absent; it does not replace
 the suite with a targeted run or loosen its budgets. Such a failure means no
 browser coverage was obtained. See [GitHub's runner specifications](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
+
+Hosted Linux CI uses the explicit D-020 functional VM profile: a fresh
+1,560-second controller clock and 2.6× operation waits. It keeps the four-CPU
+floor, full ordinary suite, assertions and exact platform screenshots. Raw
+performance measurements remain advisory for this VM lane; Mac remains the
+performance reference. A new run issues its own clock and does not extend an
+earlier failed attempt. This profile does not certify GitHub as the historical
+shared-host benchmark environment.
+
+Maintainers can add the `visual-review` PR label to capture a targeted foundation
+diagnostic before the full suite. It preserves current expected/actual/diff PNGs
+without updating references, and uploads them as a separate `visual-review-*`
+artifact. Its expected mismatch can continue to evidence upload; it never
+substitutes for the subsequent full ordinary suite or satisfies its assertions.
+Remove the label after reviewing the render environment and exact differences.
+Do not regenerate references to absorb an unexplained rendering regression.
+Apply the label before pushing the reviewed PR update; adding a label alone
+does not trigger this workflow.
+
+The Linux foundation references include the current top navigation, compact
+Findings and sectioned Settings. They were accepted after comparing all seven
+views at four widths against the previous sidebar layout and checking the
+recorded render environment. Pixel tolerance remains zero. Keyboard evidence
+tests reset a reused code pane with Home before End so each width exercises
+fresh scrolling rather than inheriting the previous width's bottom position.
 
 A passing workflow does not qualify Marketplace acquisition, the native editor
 journey, other platforms or a complete release. No browser result has been
@@ -59,8 +105,9 @@ comment alone does not update the action; review and change the full commit pin.
 
 ## Manual dependency maintenance
 
-No Dependabot configuration or automated dependency pull-request schedule is
-enabled for this preview. A maintainer can review an update deliberately:
+Dependabot configuration preserves intentional fixture controls. Routine version
+updates remain deliberate maintainer work; application and build security alerts
+and security-update behavior stay enabled. To review an update:
 
 1. Read the upstream release notes, security advisories and license changes.
    Confirm an action's tag resolves to its reviewed commit in the official

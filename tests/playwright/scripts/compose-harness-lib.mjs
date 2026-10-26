@@ -513,8 +513,19 @@ export function offlineBrowserServiceArguments({
     '--port', String(wsPort),
     '--path', wsPath,
     '--max-clients', '1',
-    '--artifacts-dir', '/tmp/kodesec-artifacts',
+    // Keep Playwright's owned per-browser directory and normal close cleanup.
+    // A fixed server directory retains discarded traces across worker sessions.
   ];
+}
+
+export function offlineControllerSupportFiles(suiteDirectory) {
+  validateBindPath(suiteDirectory, 'Playwright suite directory');
+  const directory = resolve(suiteDirectory, '..', '..', 'extensions', 'vscode', 'test', 'ui');
+  return Object.freeze({
+    bulk_finding_actions: resolve(directory, 'bulk-finding-actions.mjs'),
+    bulk_finding_race: resolve(directory, 'bulk-finding-race.mjs'),
+    finding_navigation_source: resolve(suiteDirectory, '..', '..', 'apps', 'web', 'src', 'findingNavigation.ts'),
+  });
 }
 
 export function offlineControllerArguments({
@@ -613,6 +624,8 @@ export function offlineControllerArguments({
     '--mount', `type=bind,source=${suiteDirectory},target=${suiteDirectory},readonly`,
     ...(snapshotUpdate ? ['--mount', `type=bind,source=${snapshotDirectory},target=${snapshotDirectory}`] : []),
     '--mount', `type=bind,source=${webDistDirectory},target=${webDistDirectory},readonly`,
+    ...Object.values(offlineControllerSupportFiles(suiteDirectory))
+      .flatMap(file => ['--mount', `type=bind,source=${file},target=${file},readonly`]),
     '--tmpfs', `${resultsRoot}:rw,nosuid,nodev,noexec,size=8m,uid=${uid},gid=${gid},mode=0700`,
     '--mount', `type=bind,source=${resultDirectory},target=${resultDirectory}`,
     '--workdir', suiteDirectory,

@@ -10,10 +10,9 @@ platform coverage and known issues.
 
 ## Reporting a vulnerability
 
-In [lomolabs/lomo-codesecurity](https://github.com/lomolabs/lomo-codesecurity),
-use **Security > Report a vulnerability** to send a private report when that
-GitHub feature is enabled. The existence of this policy does not mean that
-the reporting channel is available.
+Use [private vulnerability reporting](https://github.com/lomolabs/lomo-codesecurity/security/advisories/new)
+in this repository, or choose **Security → Report a vulnerability**. Private
+reporting is enabled for this source preview.
 
 If a private reporting channel is unavailable, ask a maintainer through an
 existing private contact for secure reporting instructions. Do not put

@@ -1,137 +1,160 @@
+<img src="extensions/vscode/media/lomo-icon.png" alt="Lomo CodeSecurity" width="64" height="64">
+
 # Lomo CodeSecurity
 
-Find security issues in your code, dependencies and infrastructure with local
-scanners, a browser dashboard and a VS Code extension. Review findings, open
-their source locations, and check outgoing Git history before pushing. An
-optional Advisor can help explain a finding; ordinary scans do not invoke AI.
+Local security scanning, finding review and checks before you push.
 
-**0.1 source preview.** The backend is built locally from source. Mac ARM64 and
-Ubuntu AMD64 have completed scoped functional acceptance. Fedora, native Windows
-and Remote WSL have incomplete qualification, and native Windows has a known
-automatic-startup failure. Read the [release status](docs/RELEASE_STATUS.md)
-before installing.
+[![Checks](https://github.com/lomolabs/lomo-codesecurity/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/lomolabs/lomo-codesecurity/actions/workflows/tests.yml)
+[![CodeQL](https://github.com/lomolabs/lomo-codesecurity/actions/workflows/security.yml/badge.svg?branch=main)](https://github.com/lomolabs/lomo-codesecurity/actions/workflows/security.yml)
+[Apache-2.0](LICENSE)
 
-Project repository: [lomolabs/lomo-codesecurity](https://github.com/lomolabs/lomo-codesecurity).
-Use the complete source from this repository or a reviewed source archive.
-Marketplace publication and its installation/update journey remain pending.
+[Quickstart](#quickstart) · [Daily workflow](docs/GUI_FIRST_WORKFLOW.md) · [Scanners](docs/SCANNER_TOOLS.md) · [Release status](docs/RELEASE_STATUS.md) · [Security](SECURITY.md)
 
-## Start the backend
+CodeSecurity brings scanner results into one local workbench and your existing
+VS Code profile. Inspect a finding and its source, record a review decision,
+and check the committed history you intend to push. Ordinary scans do not
+invoke AI. An optional Advisor helps explain findings without deciding the gate.
 
-Use the complete reviewed source supplied for this preview. Keep it in its own
-directory, separate from the projects you want to scan. Follow the
-[platform setup guide](docs/PLATFORM_SETUP.md) for prerequisites, then run from
-the source root on macOS or Linux:
+**0.1 source preview.** Build the backend and extension from source. Mac ARM64
+and Ubuntu AMD64 have scoped functional acceptance; Fedora qualification is
+partial, and Windows native and Remote WSL remain experimental. Marketplace
+publication is pending. See [tested scope and known issues](docs/RELEASE_STATUS.md).
+
+![Findings workbench with scanner results, source evidence and repository protection controls](tests/playwright/tests/__screenshots__/foundation.spec.ts/findings-desktop-1440-linux.png)
+
+*The Findings view, using synthetic demonstration data from the browser tests.*
+
+## What you can do
+
+| Task | In the workbench |
+| --- | --- |
+| Scan code and dependencies | Run eight pinned external tools for application security, secrets, infrastructure checks, vulnerabilities and an SBOM. [Tool roles and limits](docs/SCANNER_TOOLS.md). |
+| Review findings | Filter results, inspect bounded code evidence, open the exact source in VS Code and record reasoned lifecycle decisions. |
+| Manage repositories | Select independent repositories, authorize narrow source roots and keep each project's scans and policy separate. |
+| Check outgoing history | Apply protection deliberately to a clone. Completed evidence and the configured policy determine whether its push proceeds. |
+| Understand a result | Use optional local Ollama, or explicitly authorize a remote Advisor with a single-finding disclosure preview. Advice never changes the deterministic gate. |
+
+The external tools are Trivy, Gitleaks, OpenGrep, Bearer, Grype, Checkov,
+TruffleHog and Syft. They retain their own licenses. Internal heuristic scanners
+are optional and disabled by default.
+
+## Quickstart
+
+### 1. Start the backend
+
+First follow [platform setup](docs/PLATFORM_SETUP.md). You need Python 3.12+,
+Git, Make and a local Linux Docker engine with Compose and Buildx. A fresh build
+requires network access and **32 GiB free on both source/state and Docker build
+storage**; a restart with matching images has a separate 2 GiB floor. These are
+admission floors, not measured steady-state usage.
+
+On macOS or Linux:
 
 ```sh
+git clone https://github.com/lomolabs/lomo-codesecurity.git
+cd lomo-codesecurity
 python3 scripts/start-lomo.py --check --json
 python3 scripts/start-lomo.py
 ```
 
-Normal startup builds and starts the backend. It does not install an extension
-or open an editor. Repeat the same command to preserve installation data and
-pairing and reuse matching builds. The dashboard uses
-`http://127.0.0.1:8080` by default. To choose another loopback port, follow the
-[custom-port instructions](docs/SOURCE_STARTUP.md#use-a-different-local-port).
+`--check` never downloads its storage-probe image. On a pristine engine,
+`engine_storage_probe_missing` means normal startup needs to obtain that pinned
+dependency first. For other failed checks, follow the report's recovery guidance.
 
-The backend requires Python 3.12+, Git, Make, and a local Linux Docker engine
-with Compose and Buildx. The launcher checks prerequisites; it does not install
-them or change your Docker configuration. A first source build requires network
-access and sufficient free host and Docker storage. See the setup guide for
-the exact checks and storage admission floors.
+The launcher builds and starts the backend. It does not install prerequisites,
+change your Docker configuration, install an extension or open an editor.
+Repeat the startup command to retain installation data and pairing and reuse
+matching builds. Keep the checkout separate from the repositories being scanned.
 
-For Windows, follow [Windows source startup](docs/WINDOWS_SOURCE_STARTUP.md).
-The backend runs in WSL2. Native Windows VS Code and Remote WSL are separate
-workflows; install the extension in the host you actually intend to use.
+The default address is `http://127.0.0.1:8080`.
+[Choose another local port](docs/SOURCE_STARTUP.md#use-a-different-local-port)
+if it is already in use.
 
-## Add the editor extension
+Windows uses a WSL2 backend. Follow the separate
+[Windows startup guide](docs/WINDOWS_SOURCE_STARTUP.md); native Windows VS Code
+and Remote WSL are different extension hosts.
 
-Install the reviewed VSIX supplied with the same source preview, or build it:
+### 2. Add CodeSecurity to VS Code
+
+Install the [documented Node.js/npm prerequisites](docs/PLATFORM_SETUP.md#build-the-preview-extension), then build the preview extension:
 
 ```sh
 make vscode-package
 ```
 
-Building the extension requires the [documented Node.js/npm prerequisites](docs/PLATFORM_SETUP.md#build-the-preview-extension).
-The package is written to `.kodesec-test/vscode/code-security-0.1.0.vsix`.
-In your existing VS Code profile, choose **Extensions: Install from VSIX…**,
-select the package, open your project and run **CodeSecurity: Get Started**.
-The extension ID is `lomo-dev.code-security`. Installing it does not start the
-backend or replace your other extensions.
+In your existing VS Code profile, run **Extensions: Install from VSIX…** and
+select `.kodesec-test/vscode/code-security-0.1.0.vsix`. Open your project and run
+**CodeSecurity: Get Started**. The extension ID is `lomo-dev.code-security`.
+Installing it does not start the backend or replace your other extensions.
 
 Review Workspace Trust normally. The first eligible profile uses the
-installation's first-owner connection flow. Additional profiles require owner
-approval in **Settings > IDE access**, using the displayed verification code
-and profile name. No access secret needs to be copied into the editor.
+installation's first-owner connection flow. Additional profiles need owner
+approval in **Settings → Trusted access → IDE access**, using the displayed
+verification code and profile name. No access secret needs to be pasted into
+the editor. [Browser-only setup](docs/SOURCE_STARTUP.md#explicit-editor-and-browser-choices)
+is also available.
 
-For browser-only use, follow the [browser connection instructions](docs/SOURCE_STARTUP.md#explicit-editor-and-browser-choices).
+### 3. Reach your first finding
 
-## Reach your first finding
+1. **Authorize the source.** Select the repository and review its narrow source
+   authorization. Selecting a child never grants its parent or siblings.
+2. **Prepare scanners.** Choose **Tools → Prepare all scanners**. The separate
+   updater verifies data and rules without access to your source. Wait for the
+   enabled scanners to be ready.
+3. **Scan and review.** Scan the repository, folder or supported file. Use
+   Findings, Problems and **Open Finding in Web** to inspect results and coverage.
+   A completed scan can correctly fail its policy gate.
+4. **Choose protection.** Review thresholds, then use **Protect Pushes…** to
+   approve and apply protection to that clone. **Check Outgoing Commits…**
+   checks the committed history you plan to push. A workspace scan alone does
+   not install a hook.
 
-1. **Authorize source.** Choose the exact repository you want to scan and
-   review its narrow source authorization. Opening a folder or selecting a
-   repository does not grant source access. Selecting a child never grants its
-   parent or siblings.
-2. **Prepare scanners.** Open **Tools > Prepare all scanners**. The updater
-   downloads and verifies the required databases and rules without access to
-   your source. Complete scans wait for every enabled scanner to be ready.
-3. **Scan and review.** Scan the selected repository, folder or supported file.
-   Review Findings, Problems and **Open Finding in Web**, including coverage and
-   gate status. Each repository has an independent result. A scan can correctly
-   fail its gate when it finds a problem.
-4. **Choose protection deliberately.** Review gate thresholds, then use
-   **Protect Pushes…** to approve and apply protection to that clone. Run
-   **Check Outgoing Commits…** to check the committed history you intend to push.
-   A failed workspace scan alone does not install a Git hook.
+The [workflow guide](docs/GUI_FIRST_WORKFLOW.md) explains the controls in detail.
+Incomplete, cancelled, failed or stale evidence cannot authorize a protected
+push. Local commits remain available. Hooks can be bypassed with `--no-verify`
+or another clone; use remote branch controls for unavoidable enforcement.
 
-See the [workflow guide](docs/GUI_FIRST_WORKFLOW.md) and
-[Git push protection](docs/GIT_PUSH_PROTECTION.md). Incomplete, cancelled,
-failed or stale evidence cannot authorize a protected push. Local commits stay
-available. A local hook can be bypassed with `--no-verify` or another clone;
-use remote branch controls when enforcement must be unavoidable.
+## Updates and data freshness
 
-## Keep scanner data current
+The preview maintains scanner data through reviewed source updates. When
+definitions expire, obtain refreshed source, run normal startup to rebuild
+changed inputs, and prepare again. Downloading an expired definition again
+does not renew it. [Preparation and expiry](docs/SCANNER_TOOLS.md).
 
-Scanner binaries and data definitions are reviewed source inputs. When bundled
-definitions expire, obtain refreshed reviewed source, rerun normal startup to
-rebuild changed inputs, and prepare scanners again. Repeatedly downloading an
-expired definition does not renew it. A complete passing result is never
-inferred from limited coverage. Read [scanner preparation and freshness](docs/SCANNER_TOOLS.md).
+Preserve the installation's owner-private runtime state and Docker named volumes
+when updating. [Startup and recovery](docs/SOURCE_STARTUP.md) and
+[data persistence](docs/PERSISTENCE.md) describe what to keep. Backup/restore
+helpers are not a validated disaster-recovery facility.
 
-Preserve the installation's owner-private runtime state and Docker named
-volumes when updating. See [startup and recovery](docs/SOURCE_STARTUP.md) and
-[data persistence](docs/PERSISTENCE.md). Backup/restore helpers are not a
-validated disaster-recovery facility.
+## Privacy and limits
 
-## Privacy and security
-
-The default service address is loopback-only. Sources are narrowly authorized
+The default origin is loopback-only. Source access uses narrowly authorized
 read-only mounts or bounded snapshots. Runtime scanners operate offline against
-validated data. Redacted findings and bounded snippets persist locally; raw
-scanner output is temporary. Redaction cannot recognize every possible secret.
+validated data; redacted findings and bounded snippets persist locally. Optional
+remote Advisor requests require separate authorization and a disclosure preview.
 
-Advisor is optional. Local Ollama is the default provider route. Remote
-providers require explicit authorization and a single-finding disclosure
-preview before content is sent. Advice never changes the deterministic gate.
+CodeSecurity is not a sandbox for hostile repositories. A passing scan does not
+guarantee secure code, and redaction cannot recognize every secret. Read the
+[security model](SECURITY.md) and [platform limits](docs/RELEASE_STATUS.md).
 
-CodeSecurity is not a sandbox for hostile repositories and does not guarantee
-that a passing scan means the code is secure. Read the [security policy and
-trust boundaries](SECURITY.md).
+## Help and development
 
-## Help and contributions
+For startup or runtime trouble, run `make support-bundle` in the backend checkout.
+It collects bounded local diagnostics without uploading anything or restarting
+services. [Review the bundle before sharing](docs/MONITORING.md#local-bug-report-bundle).
+Use [Issues](https://github.com/lomolabs/lomo-codesecurity/issues) for ordinary
+bugs and [private vulnerability reporting](https://github.com/lomolabs/lomo-codesecurity/security/advisories/new)
+for security reports.
 
-For a startup or runtime problem, run `make support-bundle` in the backend
-checkout. It collects bounded local diagnostics without uploading anything or
-restarting services. [Review the bundle before sharing it](docs/MONITORING.md#local-bug-report-bundle).
-For a vulnerability, use the [private reporting guidance](SECURITY.md#reporting-a-vulnerability).
-
-Contributions start with [CONTRIBUTING.md](CONTRIBUTING.md) and the
-[development guide](docs/DEVELOPMENT.md). The [architecture overview](docs/ARCHITECTURE.md)
-explains the services and their boundaries.
+Start contributions with [CONTRIBUTING.md](CONTRIBUTING.md), the
+[development guide](docs/DEVELOPMENT.md) and [architecture](docs/ARCHITECTURE.md).
+The [CI guide](.github/WORKFLOWS.md) explains runner requirements, retained
+diagnostics and the intentional vulnerable test fixtures.
 
 ## License
 
-Project-authored source is licensed under
-[Apache-2.0](LICENSE). Third-party engines, dependencies, rules and fixtures
-retain their own terms and notices. See the [scanner license index](services/scanner/licenses/README.md)
-and the Web build's generated `THIRD_PARTY_LICENSES.md`. These notices do not
-establish rights clearance for every future distribution or a trademark license.
+Project-authored source uses [Apache-2.0](LICENSE). Third-party engines,
+dependencies, rules and fixtures retain their own terms. See the
+[scanner license index](services/scanner/licenses/README.md) and the Web build's
+generated `THIRD_PARTY_LICENSES.md`. These notices do not establish rights
+clearance for future distributions or grant trademark rights.

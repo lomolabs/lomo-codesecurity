@@ -55,6 +55,7 @@ import {
   isolatedOfflineLocalEnvironment,
   offlineBrowserServiceArguments,
   offlineControllerArguments,
+  offlineControllerSupportFiles,
   offlinePlaywrightInvocation,
   parseEnvironment,
   publishPlaywrightExecutionReport,
@@ -190,6 +191,9 @@ function localRunnerFixture(t, platform = 'darwin') {
   writeFixtureFile(resolve(scriptRoot, 'compose-harness-lib.mjs'));
   writeFixtureFile(resolve(scriptRoot, 'playwright.mjs'));
   writeFixtureFile(resolve(scriptRoot, 'server-launcher.mjs'));
+  for (const file of Object.values(offlineControllerSupportFiles(suiteRoot))) {
+    writeFixtureFile(file);
+  }
   writeFixtureFile(resolve(suiteRoot, 'playwright.config.ts'));
   writeFixtureFile(resolve(suiteRoot, 'package-lock.json'), '{}\n');
   writeFixtureFile(resolve(suiteRoot, 'server.mjs'));
@@ -707,11 +711,12 @@ test('offline browser service is exact, networkless, bounded, and mounts only lo
   assert.equal(args.includes('--unsafe'), false);
   assert.equal(args.includes('/workspace/lomo/tests/playwright'), false);
   assert.equal(args.includes('KODESEC_COMPOSE_STORAGE_STATE'), false);
-  assert.equal(args.at(-14), PLAYWRIGHT_CONTAINER_IMAGE);
-  assert.deepEqual(args.slice(-13), [
+  assert.equal(args.includes('--artifacts-dir'), false);
+  assert.equal(args.at(-12), PLAYWRIGHT_CONTAINER_IMAGE);
+  assert.deepEqual(args.slice(-11), [
     'node', `${PLAYWRIGHT_REMOTE_NODE_MODULES}/@playwright/test/cli.js`, 'run-server',
     '--host', '127.0.0.1', '--port', '43821', '--path', '/0123456789ab',
-    '--max-clients', '1', '--artifacts-dir', '/tmp/kodesec-artifacts',
+    '--max-clients', '1',
   ]);
 });
 
@@ -904,6 +909,14 @@ test('offline controller shares only the browser network namespace and retains n
   assert.ok(args.includes('KODESEC_PLAYWRIGHT_HEADED=0'));
   assert.ok(args.includes('type=bind,source=/workspace/lomo/tests/playwright,target=/workspace/lomo/tests/playwright,readonly'));
   assert.ok(args.includes('type=bind,source=/workspace/lomo/apps/web/dist,target=/workspace/lomo/apps/web/dist,readonly'));
+  assert.deepEqual(args.filter((_value, index) => args[index - 1] === '--mount'), [
+    'type=bind,source=/workspace/lomo/tests/playwright,target=/workspace/lomo/tests/playwright,readonly',
+    'type=bind,source=/workspace/lomo/apps/web/dist,target=/workspace/lomo/apps/web/dist,readonly',
+    'type=bind,source=/workspace/lomo/extensions/vscode/test/ui/bulk-finding-actions.mjs,target=/workspace/lomo/extensions/vscode/test/ui/bulk-finding-actions.mjs,readonly',
+    'type=bind,source=/workspace/lomo/extensions/vscode/test/ui/bulk-finding-race.mjs,target=/workspace/lomo/extensions/vscode/test/ui/bulk-finding-race.mjs,readonly',
+    'type=bind,source=/workspace/lomo/apps/web/src/findingNavigation.ts,target=/workspace/lomo/apps/web/src/findingNavigation.ts,readonly',
+    'type=bind,source=/workspace/lomo/tests/playwright/.results/offline/0123456789ab,target=/workspace/lomo/tests/playwright/.results/offline/0123456789ab',
+  ]);
   assert.equal(args.some((value) => value.includes('tests/__screenshots__')), false);
   const maskIndex = args.indexOf('/workspace/lomo/tests/playwright/.results:rw,nosuid,nodev,noexec,size=8m,uid=1000,gid=1000,mode=0700');
   const resultIndex = args.indexOf('type=bind,source=/workspace/lomo/tests/playwright/.results/offline/0123456789ab,target=/workspace/lomo/tests/playwright/.results/offline/0123456789ab');
@@ -2223,6 +2236,9 @@ test('native local qualification owns a unique result directory and terminally b
     /^[a-f0-9]{64}$/,
   );
   assert.match(result.receipt.candidate.runner_files.fixture_server_launcher_sha256, /^[a-f0-9]{64}$/);
+  assert.match(result.receipt.candidate.runner_files.bulk_finding_actions_sha256, /^[a-f0-9]{64}$/);
+  assert.match(result.receipt.candidate.runner_files.bulk_finding_race_sha256, /^[a-f0-9]{64}$/);
+  assert.match(result.receipt.candidate.runner_files.finding_navigation_source_sha256, /^[a-f0-9]{64}$/);
   assert.equal(result.receipt.test_execution.qualification_scope_complete, true);
   assert.equal(result.receipt.test_execution.summary.discovered_tests, 5);
   assert.deepEqual(result.receipt.test_execution.summary.action_scenario_ids, [

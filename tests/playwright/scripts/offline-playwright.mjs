@@ -41,6 +41,7 @@ import {
   publishPlaywrightExecutionReport,
   offlineBrowserServiceArguments,
   offlineControllerArguments,
+  offlineControllerSupportFiles,
   offlinePlaywrightInvocation,
   playwrightExecutionScopeComplete,
   playwrightReferenceCpuEvidence,
@@ -1060,6 +1061,8 @@ function candidateEvidence({
     package_lock_sha256: sha256File(resolve(suiteRoot, 'package-lock.json')),
     fixture_server_sha256: sha256File(resolve(suiteRoot, 'server.mjs')),
     fixture_server_launcher_sha256: sha256File(resolve(scriptRoot, 'server-launcher.mjs')),
+    ...Object.fromEntries(Object.entries(offlineControllerSupportFiles(suiteRoot))
+      .map(([name, file]) => [`${name}_sha256`, sha256File(file)])),
   };
   return {
     runner_files: runnerFiles,
@@ -2396,6 +2399,8 @@ function validateEffectiveIsolation(role, summary, uid, gid, desktop) {
       ...(snapshotUpdate ? [{ purpose: 'snapshot_baselines', writable: true }] : []),
       { purpose: 'suite', writable: false },
       { purpose: 'web_dist', writable: false },
+      ...Object.keys(offlineControllerSupportFiles(suiteDirectory))
+        .map(purpose => ({ purpose, writable: false })),
     ];
   const actualBinds = bindMounts.map(({ purpose, writable }) => ({ purpose, writable }))
     .sort((left, right) => left.purpose.localeCompare(right.purpose));
@@ -2657,6 +2662,7 @@ async function runOfflineContainers() {
   const expectedTargets = {
     suite: suiteDirectory,
     web_dist: webDistDirectory,
+    ...offlineControllerSupportFiles(suiteDirectory),
     current_results: resultDirectory,
     snapshot_baselines: snapshotDirectory,
     locked_node_modules: PLAYWRIGHT_REMOTE_NODE_MODULES,
