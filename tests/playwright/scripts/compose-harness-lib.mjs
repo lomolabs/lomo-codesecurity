@@ -517,6 +517,15 @@ export function offlineBrowserServiceArguments({
   ];
 }
 
+export function offlineControllerSupportFiles(suiteDirectory) {
+  validateBindPath(suiteDirectory, 'Playwright suite directory');
+  const directory = resolve(suiteDirectory, '..', '..', 'extensions', 'vscode', 'test', 'ui');
+  return Object.freeze({
+    bulk_finding_actions: resolve(directory, 'bulk-finding-actions.mjs'),
+    bulk_finding_race: resolve(directory, 'bulk-finding-race.mjs'),
+  });
+}
+
 export function offlineControllerArguments({
   suiteDirectory,
   webDistDirectory,
@@ -613,6 +622,8 @@ export function offlineControllerArguments({
     '--mount', `type=bind,source=${suiteDirectory},target=${suiteDirectory},readonly`,
     ...(snapshotUpdate ? ['--mount', `type=bind,source=${snapshotDirectory},target=${snapshotDirectory}`] : []),
     '--mount', `type=bind,source=${webDistDirectory},target=${webDistDirectory},readonly`,
+    ...Object.values(offlineControllerSupportFiles(suiteDirectory))
+      .flatMap(file => ['--mount', `type=bind,source=${file},target=${file},readonly`]),
     '--tmpfs', `${resultsRoot}:rw,nosuid,nodev,noexec,size=8m,uid=${uid},gid=${gid},mode=0700`,
     '--mount', `type=bind,source=${resultDirectory},target=${resultDirectory}`,
     '--workdir', suiteDirectory,
