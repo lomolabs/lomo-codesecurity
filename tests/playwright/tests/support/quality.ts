@@ -406,12 +406,11 @@ export function installRuntimeObservationGuards(page: Page, expectedOrigin: stri
   return {
     failures,
     assertClean() {
-      expect(failures.console, 'console errors').toEqual([]);
-      expect(failures.page, 'uncaught page errors').toEqual([]);
-      expect(failures.request, 'failed requests').toEqual([]);
-      expect(failures.http, 'HTTP errors').toEqual([]);
-      expect(failures.egress, 'unexpected egress').toEqual([]);
-      expect(failures.credentialUrl, 'credential-shaped URL fields').toEqual([]);
+      // Show correlated HTTP/request evidence with console errors, retaining
+      // one fail-fast assertion and every existing zero-error requirement.
+      expect(failures, 'runtime security and error guards').toEqual({
+        console: [], page: [], request: [], http: [], egress: [], credentialUrl: [],
+      });
     },
   };
 }

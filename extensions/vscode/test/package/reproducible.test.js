@@ -606,3 +606,83 @@ const { fetch, Client } = cheerioRequire('undici');
 })().catch(error => { console.error(error); process.exitCode = 1; });
 `);
   });
+
+test('patched fast-uri preserves VSCE Secretlint and relative schema references',
+  { timeout: 10000 }, async () => {
+    await runPackagingDependencyProgram(packagingNoNetworkOrCli + String.raw`
+(async () => {
+  // Resolve each dependency from the actual locked consumer, not a root import.
+  const secretlintRequire = createRequire(vsceRequire.resolve('@secretlint/node'));
+  const loaderRequire = createRequire(secretlintRequire.resolve('@secretlint/config-loader'));
+  const Ajv = loaderRequire('ajv');
+  const ajvRequire = createRequire(loaderRequire.resolve('ajv'));
+  const uri = ajvRequire('fast-uri');
+  assert.equal(ajvRequire('fast-uri/package.json').version, '3.1.9');
+
+  // Actual packaging consumer: its generated SCHEMA#/definitions/... validators
+  // compile and retain both successful validation and a real rejection.
+  const { lintText } = vsceRequire('./secretLint.js');
+  const clean = await lintText('Fixture text only.\n', 'fixture.txt', false, true);
+  assert.equal(clean.ok, true);
+  assert.deepEqual(clean.results, []);
+  const blocked = await lintText('FIXTURE=value\n', '.env', false, true);
+  assert.equal(blocked.ok, false);
+  assert.deepEqual(blocked.results.map(result => result.ruleId),
+    ['@secretlint/secretlint-rule-no-dotenv']);
+
+  // Cross-document resolution is the relevant URI compatibility boundary.
+  const ajv = new Ajv();
+  ajv.addSchema({
+    $id: 'https://schemas.example.invalid/common/types.json',
+    definitions: { enabled: { type: 'boolean' } },
+  });
+  const validate = ajv.compile({
+    $id: 'https://schemas.example.invalid/nested/root.json',
+    type: 'object',
+    properties: { enabled: { $ref: '../common/types.json#/definitions/enabled' } },
+    required: ['enabled'], additionalProperties: false,
+  });
+  assert.equal(validate({ enabled: true }), true);
+  assert.equal(validate({ enabled: 'yes' }), false);
+  assert.equal(validate({}), false);
+
+  // GHSA-w74x-v6f9-j3xg: encoded schemes stay malformed/inert.
+  for (const input of ['%6Aavascript:alert(1)', '%u006Aavascript:alert(1)']) {
+    assert.equal(uri.parse(input).error, 'URI scheme is malformed.');
+    assert.equal(uri.normalize(input), input);
+    assert.throws(() => uri.resolve('https://example.invalid/', input),
+      /URI scheme is malformed\./);
+  }
+  assert.equal(uri.equal('%68ttp://a/', 'http://a/'), false);
+
+  // GHSA-wjr9-j795-jxcr: neither an extra @ nor a stripped control may move host.
+  for (const input of ['http://a@b@evil.example/', 'http://ev\til.example/']) {
+    assert.equal(uri.parse(input).error, 'URI host is malformed.');
+    assert.equal(uri.normalize(input), input);
+    assert.throws(() => uri.resolve('https://example.invalid/', input),
+      /URI host is malformed\./);
+  }
+  assert.equal(uri.normalize('http://Example.COM/'), 'http://example.com/');
+
+  // GHSA-xhq7-xmqj-769h: normalization preserves relative-reference meaning.
+  const base = 'https://example.invalid/p/q/r';
+  for (const [input, normalized, resolved] of [
+    ['../x', '../x', 'https://example.invalid/p/x'],
+    ['a/../b', 'b', 'https://example.invalid/p/q/b'],
+  ]) {
+    assert.equal(uri.normalize(input), normalized);
+    assert.equal(uri.resolve(base, normalized), resolved);
+    assert.equal(uri.resolve(base, normalized), uri.resolve(base, input));
+  }
+  assert.equal(uri.equal('../x', 'x'), false);
+
+  // GHSA-333x-w4r6-6crp: suffix references cannot synthesize a live scheme.
+  const suffix = { reference: 'suffix', scheme: 'x' };
+  const escaped = uri.normalize('javascript:alert(1)', suffix);
+  assert.equal(escaped, 'javascript%3Aalert(1)');
+  assert.equal(uri.parse(escaped).scheme, undefined);
+  assert.equal(uri.normalize('a/b:c', suffix), 'a/b:c');
+  console.log('ok');
+})().catch(error => { console.error(error); process.exitCode = 1; });
+`, { timeout: 7500 });
+  });

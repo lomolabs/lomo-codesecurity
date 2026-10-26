@@ -1,0 +1,20 @@
+version: 2
+updates:
+  # Exact source-only positive controls: alerts stay enabled, but these
+  # vulnerabilities must remain present for the scanners to detect them.
+  - package-ecosystem: pip
+    directory: /tests/scanner-runtime/fixtures/dependencies/positive
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    ignore:
+      - dependency-name: django
+      - dependency-name: pyyaml
+      - dependency-name: requests
+  - package-ecosystem: npm
+    directory: /tests/scanner-runtime/fixtures/dependencies/positive
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    ignore:
+      - dependency-name: lodash

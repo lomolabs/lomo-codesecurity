@@ -423,12 +423,15 @@ label = "PRIVATE KEY " * 32768
 malformed_begin = "-----BEGIN " + label
 malformed_end = "-----BEGIN PRIVATE KEY-----\n-----END " + label
 dotted = "a." * 65536
+missing_userinfo_end = "https://" + "!" * 262144
 for module in (api, scanner):
     assert module.redact_text(malformed_begin) == malformed_begin
     assert module.redact_text(malformed_end) == "-----BEGIN PRIVATE KEY-----\n[REDACTED]"
     assert module.redact_text(dotted) == dotted
+    assert module.redact_text(missing_userinfo_end) == missing_userinfo_end
     assert module.redact_text(dotted + " a://fixture@host").endswith(" a://[REDACTED]@host")
 assert not api.contains_explicit_credential(dotted)
+assert not api.contains_explicit_credential(missing_userinfo_end)
 assert api.contains_explicit_credential(dotted + " a://fixture@host")
 '''
     subprocess.run([sys.executable, "-B", "-c", program, str(REPOSITORY_ROOT)],

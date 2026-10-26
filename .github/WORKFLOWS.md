@@ -1,5 +1,22 @@
 # Repository checks and maintenance
 
+## Intentional vulnerable fixtures
+
+`tests/scanner-runtime/fixtures/dependencies/positive` contains source-only
+positive controls. Django, PyYAML, requests and lodash are deliberately pinned
+to vulnerable versions so the scanners must detect them. They are not installed
+as application dependencies or deployed as sample services.
+
+The exact-directory entries in [dependabot.yml](dependabot.yml) ignore automatic
+upgrades only for those four fixture packages. Version-update PRs for those
+entries are disabled; security alerts remain enabled. Actual application and
+build dependencies retain their security-update behavior. Do not dismiss real
+application advisories or upgrade fixtures merely to make a dashboard green.
+Changing a fixture requires reviewing its expected scanner result as well.
+
+This uses dependency-specific ignores, not an `exclude-paths` assumption:
+[GitHub documents how security updates use the configuration](https://docs.github.com/en/code-security/how-tos/secure-your-supply-chain/secure-your-dependencies/configure-security-updates).
+
 The workflows use GitHub-hosted Ubuntu 24.04 machines, pinned action commits,
 bounded jobs and the repository's maintained commands. They do not publish a
 release, push code, install into a user's editor, send messages or use deployment
@@ -88,8 +105,9 @@ comment alone does not update the action; review and change the full commit pin.
 
 ## Manual dependency maintenance
 
-No Dependabot configuration or automated dependency pull-request schedule is
-enabled for this preview. A maintainer can review an update deliberately:
+Dependabot configuration preserves intentional fixture controls. Routine version
+updates remain deliberate maintainer work; application and build security alerts
+and security-update behavior stay enabled. To review an update:
 
 1. Read the upstream release notes, security advisories and license changes.
    Confirm an action's tag resolves to its reviewed commit in the official
