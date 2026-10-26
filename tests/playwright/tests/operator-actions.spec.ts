@@ -2950,7 +2950,7 @@ test('hard reload waits for held API reads without aborting their evidence', asy
   page.on('requestfinished', (completed) => {
     if (completed === heldRequest) order.push('read-finished');
   });
-  await page.route('**/v1/config', async (route) => {
+  await page.route(new URL('/v1/config', baseURL).href, async (route) => {
     heldRequest = route.request();
     observeHeld();
     await held;
