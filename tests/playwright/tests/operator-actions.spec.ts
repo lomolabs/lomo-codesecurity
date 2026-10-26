@@ -2933,6 +2933,62 @@ test('local one-step setup reports failed retry and stalled cancellation truthfu
   guards.assertClean();
 });
 
+test('hard reload waits for held API reads without aborting their evidence', async ({ page, request, baseURL }) => {
+  if (!baseURL) throw new Error('Playwright baseURL is required.');
+  await request.post('/__test/reset', { data: { profile: 'fresh', generation: 1 } });
+  const guards = await installRuntimeGuards(page, new URL(baseURL).origin);
+  await openRoute(page, 'Settings');
+  await guards.waitForApiIdle();
+  guards.assertClean();
+
+  let releaseHeld!: () => void;
+  let observeHeld!: () => void;
+  const held = new Promise<void>((resolve) => { releaseHeld = resolve; });
+  const observed = new Promise<void>((resolve) => { observeHeld = resolve; });
+  const order: string[] = [];
+  let heldRequest: Request | undefined;
+  page.on('requestfinished', (completed) => {
+    if (completed === heldRequest) order.push('read-finished');
+  });
+  await page.route('**/v1/config', async (route) => {
+    heldRequest = route.request();
+    observeHeld();
+    await held;
+    await route.continue();
+  }, { times: 1 });
+  const read = page.evaluate(async () => {
+    const response = await fetch('/v1/config');
+    await response.arrayBuffer();
+    return response.ok;
+  });
+  await observed;
+  let reloadStarted = false;
+  const reload = (async () => {
+    await guards.waitForApiIdle();
+    guards.assertClean();
+    reloadStarted = true;
+    order.push('reload-started');
+    await page.reload();
+  })();
+  void reload.catch(() => undefined);
+  try {
+    // A browser round trip lets an incorrectly immediate fence run while the
+    // real API read remains deliberately held; no elapsed-time sleep is needed.
+    await page.evaluate(() => true);
+    expect(reloadStarted).toBe(false);
+    releaseHeld();
+    expect(await read).toBe(true);
+    await reload;
+    expect(order).toEqual(['read-finished', 'reload-started']);
+    await expect(page.getByRole('heading', { level: 1, name: 'Settings', exact: true })).toBeVisible();
+    await guards.waitForApiIdle();
+    guards.assertClean();
+  } finally {
+    releaseHeld();
+    await Promise.allSettled([read, reload]);
+  }
+});
+
 test('Advisor provider cards complete local, direct, and SSH action journeys without exposing credentials', async ({ page, request, baseURL }) => {
   if (!baseURL) throw new Error('Playwright baseURL is required.');
   await request.post('/__test/reset', { data: { profile: 'fresh', generation: 1 } });
@@ -3178,6 +3234,9 @@ test('Advisor provider cards complete local, direct, and SSH action journeys wit
   await request.post('/__test/advisor-provider-authorize', { data: { provider_id: readySshId } });
   const authorizedSettingsUrl = page.url();
   expect(new URL(authorizedSettingsUrl).searchParams.get('view')).toBe('settings');
+  guards.assertClean();
+  await guards.waitForApiIdle();
+  guards.assertClean();
   await page.reload();
   await expect(page).toHaveURL(authorizedSettingsUrl);
   await expect(page.getByRole('heading', { level: 1, name: 'Settings', exact: true })).toBeVisible();
@@ -3241,6 +3300,9 @@ test('Advisor provider cards complete local, direct, and SSH action journeys wit
   }
   const boundedSettingsUrl = page.url();
   expect(new URL(boundedSettingsUrl).searchParams.get('view')).toBe('settings');
+  guards.assertClean();
+  await guards.waitForApiIdle();
+  guards.assertClean();
   await page.reload();
   await expect(page).toHaveURL(boundedSettingsUrl);
   await expect(page.getByRole('heading', { level: 1, name: 'Settings', exact: true })).toBeVisible();

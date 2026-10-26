@@ -392,19 +392,73 @@ export function installRuntimeObservationGuards(page: Page, expectedOrigin: stri
   } catch { /* Reject invalid origin input below without including it in the error. */ }
   if (!canonicalHttpOrigin) throw new Error('Runtime guards require an exact canonical HTTP(S) origin.');
   const failures: Failures = { console: [], page: [], request: [], http: [], egress: [], credentialUrl: [] };
+  const pendingApiRequests = new Set<Request>();
+  let requestLimitExceeded = false;
+  let apiIdleWait: { changed: () => void; cancel: () => void } | null = null;
+  const finishRequest = (request: Request) => {
+    if (pendingApiRequests.delete(request)) apiIdleWait?.changed();
+  };
   page.on('console', (message) => { if (message.type() === 'error') failures.console.push(message.text()); });
   page.on('pageerror', (error) => failures.page.push(error.message));
-  page.on('requestfailed', (request) => failures.request.push(`${request.method()} ${safeUrl(request.url())}: ${request.failure()?.errorText || 'failed'}`));
+  page.on('requestfailed', (request) => {
+    failures.request.push(`${request.method()} ${safeUrl(request.url())}: ${request.failure()?.errorText || 'failed'}`);
+    finishRequest(request);
+  });
+  page.on('requestfinished', finishRequest);
   page.on('response', (response) => { if (response.status() >= 400) failures.http.push(`${response.status()} ${safeUrl(response.url())}`); });
   page.on('request', (request) => {
     const url = new URL(request.url());
+    if (url.origin === expectedOrigin && (url.pathname.startsWith('/v1/') || url.pathname === '/healthz')) {
+      if (pendingApiRequests.size >= 512) requestLimitExceeded = true;
+      else pendingApiRequests.add(request);
+      apiIdleWait?.changed();
+    }
     if (/^https?:$/.test(url.protocol) && url.origin !== expectedOrigin) failures.egress.push(`${request.method()} ${safeUrl(request.url())}`);
     for (const name of url.searchParams.keys()) {
       if (/token|secret|password|credential|authorization|api[_-]?key/i.test(name)) failures.credentialUrl.push(`${request.method()} ${url.origin}${url.pathname}?<credential-field>`);
     }
   });
+  page.once('close', () => {
+    apiIdleWait?.cancel();
+    pendingApiRequests.clear();
+  });
   return {
     failures,
+    waitForApiIdle(timeoutMs = 10_000): Promise<void> {
+      if (!Number.isFinite(timeoutMs) || timeoutMs <= 500 || timeoutMs > 30_000) {
+        throw new Error('API-idle wait requires a finite 500–30000 ms budget.');
+      }
+      if (apiIdleWait) throw new Error('API-idle wait already has an owner.');
+      const deadline = performance.now() + timeoutMs;
+      return new Promise<void>((resolve, reject) => {
+        let quietTimer: ReturnType<typeof setTimeout> | undefined;
+        let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+        let finished = false;
+        const finish = (error?: Error) => {
+          if (finished) return;
+          finished = true;
+          const failure = error || (performance.now() >= deadline
+            ? new Error('API reads did not settle within the issued wait budget.') : undefined);
+          if (quietTimer) clearTimeout(quietTimer);
+          if (deadlineTimer) clearTimeout(deadlineTimer);
+          if (apiIdleWait === owner) apiIdleWait = null;
+          if (failure) reject(failure);
+          else resolve();
+        };
+        const changed = () => {
+          if (quietTimer) clearTimeout(quietTimer);
+          quietTimer = undefined;
+          if (page.isClosed()) finish(new Error('Page closed before API reads settled.'));
+          else if (performance.now() >= deadline) finish(new Error('API reads did not settle within the issued wait budget.'));
+          else if (requestLimitExceeded) finish(new Error('API-idle request bound exceeded.'));
+          else if (pendingApiRequests.size === 0) quietTimer = setTimeout(() => finish(), 500);
+        };
+        const owner = { changed, cancel: () => finish(new Error('Page closed during API-idle wait.')) };
+        apiIdleWait = owner;
+        deadlineTimer = setTimeout(() => finish(new Error('API reads did not settle within the issued wait budget.')), timeoutMs);
+        changed();
+      });
+    },
     assertClean() {
       // Show correlated HTTP/request evidence with console errors, retaining
       // one fail-fast assertion and every existing zero-error requirement.
