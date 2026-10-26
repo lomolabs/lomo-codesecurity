@@ -913,6 +913,7 @@ test('offline controller shares only the browser network namespace and retains n
     'type=bind,source=/workspace/lomo/apps/web/dist,target=/workspace/lomo/apps/web/dist,readonly',
     'type=bind,source=/workspace/lomo/extensions/vscode/test/ui/bulk-finding-actions.mjs,target=/workspace/lomo/extensions/vscode/test/ui/bulk-finding-actions.mjs,readonly',
     'type=bind,source=/workspace/lomo/extensions/vscode/test/ui/bulk-finding-race.mjs,target=/workspace/lomo/extensions/vscode/test/ui/bulk-finding-race.mjs,readonly',
+    'type=bind,source=/workspace/lomo/apps/web/src/findingNavigation.ts,target=/workspace/lomo/apps/web/src/findingNavigation.ts,readonly',
     'type=bind,source=/workspace/lomo/tests/playwright/.results/offline/0123456789ab,target=/workspace/lomo/tests/playwright/.results/offline/0123456789ab',
   ]);
   assert.equal(args.some((value) => value.includes('tests/__screenshots__')), false);
@@ -2236,6 +2237,7 @@ test('native local qualification owns a unique result directory and terminally b
   assert.match(result.receipt.candidate.runner_files.fixture_server_launcher_sha256, /^[a-f0-9]{64}$/);
   assert.match(result.receipt.candidate.runner_files.bulk_finding_actions_sha256, /^[a-f0-9]{64}$/);
   assert.match(result.receipt.candidate.runner_files.bulk_finding_race_sha256, /^[a-f0-9]{64}$/);
+  assert.match(result.receipt.candidate.runner_files.finding_navigation_source_sha256, /^[a-f0-9]{64}$/);
   assert.equal(result.receipt.test_execution.qualification_scope_complete, true);
   assert.equal(result.receipt.test_execution.summary.discovered_tests, 5);
   assert.deepEqual(result.receipt.test_execution.summary.action_scenario_ids, [

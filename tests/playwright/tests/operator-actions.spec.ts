@@ -1697,7 +1697,9 @@ test('IDE authority: Settings reviews a no-paste IDE request while browser pairi
   await expect(clientRow).toContainText('active generation 1');
   await expect(clientRow).not.toContainText('authority expires');
   await pairing.getByRole('button', { name: 'Approve', exact: true }).click();
-  await expect(pairing.getByRole('status')).toContainText(`${enrollmentClientName} was approved. VS Code can now finish activation without a pasted key.`);
+  const approvedMessage = `${enrollmentClientName} was approved. VS Code can now finish activation without a pasted key.`;
+  await expect(pairing.getByRole('status').filter({ hasText: approvedMessage })).toContainText(approvedMessage);
+  await expect(pairing.getByText('Loading pending IDE requests…', { exact: true })).toHaveCount(0);
   await expect(pairing.getByRole('list', { name: 'Pending IDE access requests', exact: true })).toHaveCount(0);
   expect(decisionRequests).toBe(1);
 

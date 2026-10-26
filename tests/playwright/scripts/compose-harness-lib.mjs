@@ -523,6 +523,7 @@ export function offlineControllerSupportFiles(suiteDirectory) {
   return Object.freeze({
     bulk_finding_actions: resolve(directory, 'bulk-finding-actions.mjs'),
     bulk_finding_race: resolve(directory, 'bulk-finding-race.mjs'),
+    finding_navigation_source: resolve(suiteDirectory, '..', '..', 'apps', 'web', 'src', 'findingNavigation.ts'),
   });
 }
 

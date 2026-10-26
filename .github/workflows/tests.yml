@@ -46,6 +46,8 @@ jobs:
     timeout-minutes: 45
     env:
       KODESEC_PLAYWRIGHT_HEADED: '0'
+      LOMO_PLAYWRIGHT_TIMING_POLICY: D-020
+      LOMO_PLAYWRIGHT_PERFORMANCE_PLATFORM: linux
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -62,6 +64,7 @@ jobs:
           import { availableParallelism } from 'node:os';
           import { PLAYWRIGHT_OFFLINE_BROWSER_CPUS } from './tests/playwright/scripts/compose-harness-lib.mjs';
           const actual = availableParallelism();
+          console.log(`Browser runner available CPUs: ${actual}; required: ${PLAYWRIGHT_OFFLINE_BROWSER_CPUS}`);
           if (actual < PLAYWRIGHT_OFFLINE_BROWSER_CPUS) {
             throw new Error(`The ordinary Web suite requires ${PLAYWRIGHT_OFFLINE_BROWSER_CPUS} available CPUs; this runner has ${actual}. Private GitHub standard runners may be too small. No browser coverage was obtained.`);
           }
@@ -80,8 +83,44 @@ jobs:
           if (result.error) throw result.error;
           if (result.status !== 0) process.exit(result.status ?? 1);
           NODE
+      - name: Capture visual-review diagnostics when requested
+        id: visual_review
+        if: ${{ contains(github.event.pull_request.labels.*.name, 'visual-review') }}
+        continue-on-error: true
+        run: |
+          env -u LOMO_PLAYWRIGHT_TIMING_POLICY -u LOMO_PLAYWRIGHT_PERFORMANCE_PLATFORM \
+            npm --prefix tests/playwright run test:targeted -- tests/foundation.spec.ts \
+            --grep 'has a deterministic foundation surface'
+      - name: Retain requested visual-review diagnostics
+        if: ${{ always() && steps.visual_review.outcome != 'skipped' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: visual-review-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            tests/playwright/.results/offline/*/runner-receipt.json
+            tests/playwright/.results/offline/*/execution-report.json
+            tests/playwright/.results/offline/*/artifacts/**/*.png
+            tests/playwright/.results/offline/*/artifacts/**/attachments/render-environment-json-*.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
       - name: Run the ordinary maintained Web suite
+        id: web
         run: npm --prefix tests/playwright test
+      - name: Retain bounded browser receipts and fixture screenshots
+        if: ${{ always() && steps.web.outcome != 'skipped' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: browser-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            tests/playwright/.results/offline/*/runner-receipt.json
+            tests/playwright/.results/offline/*/execution-report.json
+            tests/playwright/.results/offline/*/artifacts/**/*.png
+            tests/playwright/.results/offline/*/artifacts/**/attachments/render-environment-json-*.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
 
   package:
     name: Canonical extension package
