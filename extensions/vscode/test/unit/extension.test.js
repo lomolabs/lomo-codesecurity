@@ -2664,7 +2664,7 @@ test('retained startup restores inline findings after delayed rich hydration and
         assert.equal(richSignals.at(-1).aborted, false, 'the current hydration remains admitted');
         assert.equal(latestInline().length, 1);
         assert.equal(latestInline()[0].renderOptions.after.contentText, '  [CRITICAL · semgrep +2 reports]');
-        assert.match(latestInline()[0].hoverMessage.value, /S41-F003/u);
+        assert.equal(latestInline()[0].hoverMessage, undefined, 'the provider owns the line-end hover');
         assert.equal(entries.get(uriKey)?.length, 3);
         assert.equal(statusItems[0].text, '$(shield) connected · fail · 3 · 1 scoped');
         assert.equal(treeChildReads, 0, 'no Tree demand supplies the missing automatic hydration');
@@ -3507,12 +3507,7 @@ test('targeted Web source reveal retains the exact hover owner among identical r
       const stale = hover();
       assert(stale, 'current overlapping descriptions remain visible without reusing stale reveal authority');
       assert(stale.contents.value.indexOf('S41-F001') < stale.contents.value.indexOf('S41-F002'));
-      if (point) {
-        assert.deepEqual(advisorIds(stale), [], 'ambiguous points cannot use an owner from another document version');
-        assert.equal(stale.contents.isTrusted, false);
-      } else {
-        assert.deepEqual(advisorIds(stale), [1, 2], 'nonempty overlap returns to stable, non-preferred ordering');
-      }
+      assert.deepEqual(advisorIds(stale), [1, 2], 'each current report has its own menu without retaining a stale preference');
     });
   }
 });
@@ -6582,10 +6577,12 @@ test('same-line native annotations aggregate deterministically at line end and u
       'GitLens-style trailing text is anchored at the document line end',
     );
     assert.equal(inline[0].renderOptions.after.contentText, '  [CRITICAL · alpha +2 reports]');
-    assert.match(inline[0].hoverMessage.value, /S41-F003/);
-    assert.match(inline[0].hoverMessage.value, /2 other reports on this line\. These may describe different issues; each report keeps its own severity and actions\./);
-    assert.equal(inline[0].hoverMessage.isTrusted, false);
-    assert.doesNotMatch(inline[0].hoverMessage.value, /command:/u);
+    assert.equal(inline[0].hoverMessage, undefined);
+    const lineMenu = provideHover(document, inline[0].range.end).contents;
+    assert.match(lineMenu.value, /S41-F003/);
+    const lifecycleLinks = [...lineMenu.value.matchAll(/command:lomoCodeSecurity\.setLifecycle\?([^\s)]+)/gu)];
+    assert.deepEqual(lifecycleLinks.map(match => JSON.parse(decodeURIComponent(match[1]))[0].findingId).sort(), [1, 2, 3]);
+    assert(lineMenu.isTrusted.enabledCommands.includes('lomoCodeSecurity.setLifecycle'));
     const sourceHover = provideHover(document, { line: 1, character: 2 });
     assert.match(sourceHover.contents.value, /command:lomoCodeSecurity\.openFinding/u);
     assert.match(sourceHover.contents.value, /command:lomoCodeSecurity\.runAdvisor/u);
@@ -6691,11 +6688,11 @@ test('current hover Advisor command offers consent before authoritative network 
     await refresh();
     for (let turn = 0; turn < 50; turn += 1) {
       const rendered = decorationCalls.filter(({ decoration }) => decoration.id === 1).at(-1)?.options;
-      if (rendered?.[0]?.hoverMessage.value.includes('S16-F001')) break;
+      if (rendered?.[0] && provideHover(document, rendered[0].range.end)?.contents.value.includes('S16-F001')) break;
       await new Promise((resolve) => setImmediate(resolve));
     }
     assert.match(
-      decorationCalls.filter(({ decoration }) => decoration.id === 1).at(-1).options[0].hoverMessage.value,
+      provideHover(document, decorationCalls.filter(({ decoration }) => decoration.id === 1).at(-1).options[0].range.end).contents.value,
       /S16-F001/u,
     );
 
@@ -6710,14 +6707,15 @@ test('current hover Advisor command offers consent before authoritative network 
     releaseScan17Hydration(json(findingPage([currentFinding()], 1)));
     for (let turn = 0; turn < 50; turn += 1) {
       const rendered = decorationCalls.filter(({ decoration }) => decoration.id === 1).at(-1)?.options;
-      if (rendered?.[0]?.hoverMessage.value.includes('S17-F001')) break;
+      if (rendered?.[0] && provideHover(document, rendered[0].range.end)?.contents.value.includes('S17-F001')) break;
       await new Promise((resolve) => setImmediate(resolve));
     }
-    const currentInlineHover = decorationCalls.at(-1).options[0].hoverMessage;
+    const currentInlineHover = provideHover(document, decorationCalls.at(-1).options[0].range.end).contents;
     assert.match(currentInlineHover.value, /S17-F001/u);
     assert.doesNotMatch(currentInlineHover.value, /S16-F001/u);
-    assert.equal(currentInlineHover.isTrusted, false, 'decoration hover remains informational');
-    assert.doesNotMatch(currentInlineHover.value, /command:/u, 'decoration hover exposes no command URI');
+    assert(currentInlineHover.isTrusted.enabledCommands.includes('lomoCodeSecurity.setLifecycle'));
+    const lifecycleLink = /command:lomoCodeSecurity\.setLifecycle\?([^\s)]+)/u.exec(currentInlineHover.value);
+    assert.equal(JSON.parse(decodeURIComponent(lifecycleLink[1]))[0].scanId, 17);
 
     const currentHover = provideHover(document, { line: 8, character: 0 });
     assert(currentHover, 'the registered source-range HoverProvider serves the current finding');
@@ -6734,7 +6732,8 @@ test('current hover Advisor command offers consent before authoritative network 
       'the dashboard action must not imply that it keeps or reveals source focus',
     );
     assert.deepEqual(currentHover.contents.isTrusted, {
-      enabledCommands: ['lomoCodeSecurity.openFinding', 'lomoCodeSecurity.runAdvisor'],
+      enabledCommands: ['lomoCodeSecurity.openFinding', 'lomoCodeSecurity.setLifecycle', 'lomoCodeSecurity.runAdvisor',
+        'lomoCodeSecurity.rescanFile', 'lomoCodeSecurity.deleteFinding'],
     });
     assert.equal(
       (currentHover.contents.value.match(/command:lomoCodeSecurity\.openFinding\?/gu) || []).length,
@@ -12527,6 +12526,7 @@ test('zero-width diagnostic Quick Fix retains its provider-time visible source c
     executedCommands,
     openDocument,
     provideCodeActions,
+    provideHover,
     setVisibleTextEditors,
     warnings,
   }) => {
@@ -12570,6 +12570,14 @@ test('zero-width diagnostic Quick Fix retains its provider-time visible source c
       if (actions.length === 0) await new Promise((resolve) => setImmediate(resolve));
     }
     assertStableQuickFixCommands(actions);
+    assert.match(provideHover(document, sourceCursor.start).contents.value, /S41-F001/);
+    const fromText = provideCodeActions(document, sourceCursor, { diagnostics: [] });
+    assertStableQuickFixCommands(fromText);
+    assert(fromText.some(action => /lifecycle/i.test(action.title)));
+    assert.equal(provideHover(document, { line: 7, character: 4 }), undefined);
+    assert.deepEqual(provideCodeActions(document, {
+      start: { line: 7, character: 4 }, end: { line: 7, character: 4 },
+    }, { diagnostics: [] }), []);
     const advisor = actions.find((action) => action.title === 'Run CodeSecurity Advisor');
     await registrations.get(advisor.command.command)();
 
@@ -12678,6 +12686,10 @@ test('hover and Code Actions preserve exact API identity across overlapping, mul
       await new Promise((resolve) => setImmediate(resolve));
     }
 
+    for (const [line, displayId] of [[0, 'S41-F003'], [document.lineCount - 1, 'S41-F004']]) {
+      const menu = provideHover(document, { line, character: document.lineAt(line).text.length });
+      assert(menu?.contents.value.includes(displayId), 'the visible annotation at a clamped location opens its exact menu');
+    }
     const overlapHover = provideHover(document, { line: 3, character: 2 });
     assert.match(overlapHover.contents.value, /later overlapping match/);
     assert.match(overlapHover.contents.value, /first line  \nsecond line  \n/u);
@@ -12859,18 +12871,14 @@ test('collapsed exact finding selections retain an explicit owner and reject amb
     assert.equal(hover.contents.isTrusted.enabledCommands.includes('lomoCodeSecurity.runAdvisor'), true);
   });
 
-  const assertReadOnly = (hover) => {
-    assert.match(hover.contents.value, /S41-F002/u);
-    assert.match(hover.contents.value, /S41-F003/u);
-    assert.equal(
-      /command:lomoCodeSecurity\.(?:runAdvisor|openFinding)\?/u.test(hover.contents.value),
-      false,
-      'identical collapsed candidates stay visible but cannot guess an interactive owner',
-    );
-    assert.equal(hover.contents.isTrusted, false);
+  const assertIndividualActions = (hover) => {
+    const ids = [...hover.contents.value.matchAll(/command:lomoCodeSecurity\.setLifecycle\?([^\s)]+)/gu)]
+      .map(match => JSON.parse(decodeURIComponent(match[1]))[0].findingId);
+    assert.deepEqual(ids.sort(), [broad.id, selected.id, identical.id].sort());
+    assert.equal(hover.contents.isTrusted.enabledCommands.includes('lomoCodeSecurity.setLifecycle'), true);
   };
-  await exercise([broad, selected, identical], assertReadOnly, { reveal: false });
-  await exercise([broad, selected, identical], assertReadOnly, { changedVersion: true });
+  await exercise([broad, selected, identical], assertIndividualActions, { reveal: false });
+  await exercise([broad, selected, identical], assertIndividualActions, { changedVersion: true });
 });
 
 
@@ -12882,11 +12890,16 @@ test('identical overlapping hover ranges stay stable when the visible selection 
     end_line: 1,
     end_column: 8,
   }));
+  const workspaceUri = 'file:///workspace/drive%3A/work%20tree/%25/%23/%3F';
+  const workspacePath = '/workspace/drive:/work tree/%/#/?';
   await withExtensionFixture({
+    workspaceFolders: [{ name: 'current', uri: {
+      scheme: 'file', authority: '', path: workspacePath, fsPath: workspacePath, toString: () => workspaceUri,
+    } }],
     streamReady: false,
     route: async (url) => {
       if (url.pathname === '/v1/projects/resolve') {
-        return json({ id: 7, name: 'current', repo_path: '/workspace/current' });
+        return json({ id: 7, name: 'current', repo_path: workspacePath });
       }
       if (url.pathname === '/v1/projects/7/scans/latest') {
         return json({ id: 41, project_id: 7, status: 'completed', findings_revision: 1 });
@@ -12897,8 +12910,8 @@ test('identical overlapping hover ranges stay stable when the visible selection 
   }, async ({ registrations, errors, openDocument, provideHover, setVisibleTextEditors, treeProvider }) => {
     const document = {
       uri: {
-        path: '/workspace/current/src/identical.ts',
-        toString: () => 'file:///workspace/current/src/identical.ts',
+        path: workspacePath + '/src/identical.ts',
+        toString: () => workspaceUri + '/src/identical.ts',
       },
       version: 1,
       lineCount: 1,
@@ -12919,6 +12932,11 @@ test('identical overlapping hover ranges stay stable when the visible selection 
     await hydrateTreePath(treeProvider(), 'src/identical.ts');
     const hover = provideHover(document, { line: 0, character: 2 });
     assert(hover, 'both identical current ranges remain visible as exact hover sections');
+    for (const [, query] of hover.contents.value.matchAll(/command:lomoCodeSecurity\.\w+\?([^\s)]+)/gu)) {
+      const decodedUri = decodeURIComponent(query);
+      assert.equal(JSON.parse(decodedUri)[0].workspaceKey, workspaceUri);
+      assert.equal(JSON.parse(decodeURIComponent(decodedUri))[0].workspaceKey, workspaceUri);
+    }
     const contexts = [...hover.contents.value.matchAll(
       /command:lomoCodeSecurity\.runAdvisor\?([^\s)]+)/gu,
     )].map((match) => JSON.parse(decodeURIComponent(match[1]))[0]);
@@ -14129,7 +14147,7 @@ test('committed lifecycle mutation reports a truthful refresh warning when its r
     assert.equal(information.some((message) => /complete scan revision was reloaded/u.test(message)), false);
     assert.equal(warningCalls.length, 1);
     assert.deepEqual(warningCalls[0].actions, ['Refresh Findings']);
-    assert.match(warningCalls[0].message, /S41-F001 is now Needs review with gate effect Blocking/u);
+    assert.match(warningCalls[0].message, /S41-F001 is now Needs review with gate effect Eligible for gate evaluation/u);
     assert.match(warningCalls[0].message, /committed the lifecycle change/u);
     assert.match(warningCalls[0].message, /do not repeat the change/u);
     assert.doesNotMatch(warningCalls[0].message, /Refresh Jobs/u);
@@ -14196,7 +14214,8 @@ test('hover treats hostile finding fields as text and severity groups keep criti
     assert.equal(hover.contents.supportThemeIcons, false);
     assert.equal(hover.contents.supportHtml, false);
     assert.deepEqual(hover.contents.isTrusted, {
-      enabledCommands: ['lomoCodeSecurity.openFinding', 'lomoCodeSecurity.runAdvisor'],
+      enabledCommands: ['lomoCodeSecurity.openFinding', 'lomoCodeSecurity.setLifecycle', 'lomoCodeSecurity.runAdvisor',
+        'lomoCodeSecurity.rescanFile', 'lomoCodeSecurity.deleteFinding'],
     });
     const markdown = hover.contents.segments
       .filter(({ kind }) => kind === 'markdown')
@@ -14212,10 +14231,7 @@ test('hover treats hostile finding fields as text and severity groups keep criti
     assert.match(text, /<img src=x>/);
     assert.deepEqual(
       [...markdown.matchAll(/\(command:([^?]+)\?/g)].map((match) => match[1]),
-      [
-        'lomoCodeSecurity.openFinding', 'lomoCodeSecurity.runAdvisor',
-        'lomoCodeSecurity.openFinding', 'lomoCodeSecurity.runAdvisor',
-      ],
+      [...hover.contents.isTrusted.enabledCommands, ...hover.contents.isTrusted.enabledCommands],
     );
   });
 });

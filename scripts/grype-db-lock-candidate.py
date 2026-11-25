@@ -630,7 +630,8 @@ def inner_canary(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _mount(source: Path, target: str, *, readonly: bool) -> str:
-    source = source.resolve(strict=True)
+    if source.resolve(strict=True) != source:
+        raise CandidateError("mount_source_unsafe")
     if "," in str(source) or "=" in str(source):
         raise CandidateError("mount_source_unsafe")
     return f"type=bind,source={source},target={target}" + (",readonly" if readonly else "")
@@ -689,7 +690,12 @@ def phase_argv(
         mounts = (producer_mount, _mount(output_dir / "vulnerability-db.tar.zst", f"{REVIEW_ROOT}/vulnerability-db.tar.zst", readonly=True), _mount(output_dir / "candidate-db", f"{REVIEW_ROOT}/candidate-db", readonly=False))
         return docker_argv(image_id=image_id, identity=identity, invocation_id=invocation_id, phase=phase, run_identity=run_identity, mounts=mounts, network="none", arguments=(*common, "--archive", f"{REVIEW_ROOT}/vulnerability-db.tar.zst", "--cache", f"{REVIEW_ROOT}/candidate-db", "--scratch", f"{REVIEW_ROOT}/scratch"))
     if phase == "canary":
-        mounts = (producer_mount, _mount(output_dir / "candidate-db", f"{REVIEW_ROOT}/candidate-db", readonly=True), _mount(POSITIVE_FIXTURE_PATH, f"{REVIEW_ROOT}/positive", readonly=True), _mount(ZERO_FIXTURE_PATH, f"{REVIEW_ROOT}/zero", readonly=True))
+        manifests = (
+            _mount(POSITIVE_FIXTURE_PATH / (name + ".fixture"), f"{REVIEW_ROOT}/positive/{name}", readonly=True)
+            for name in ("package-lock.json", "package.json", "requirements.txt")
+        )
+        mounts = (producer_mount, _mount(output_dir / "candidate-db", f"{REVIEW_ROOT}/candidate-db", readonly=True),
+                  *manifests, _mount(ZERO_FIXTURE_PATH, f"{REVIEW_ROOT}/zero", readonly=True))
         return docker_argv(image_id=image_id, identity=identity, invocation_id=invocation_id, phase=phase, run_identity=run_identity, mounts=mounts, network="none", arguments=(*common, "--cache", f"{REVIEW_ROOT}/candidate-db", "--scratch", f"{REVIEW_ROOT}/scratch", "--positive-fixture", f"{REVIEW_ROOT}/positive", "--zero-fixture", f"{REVIEW_ROOT}/zero"))
     raise CandidateError("docker_phase_invalid")
 

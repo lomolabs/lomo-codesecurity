@@ -1569,8 +1569,18 @@ def test_inner_canary_paths_cannot_cross_component_profiles(
     assert captured.err == b"kodesec_candidate_failure/v1 canary unexpected\n"
 
 
+@pytest.fixture
+def positive_manifests(tmp_path: Path) -> Path:
+    source = ROOT / "tests/scanner-runtime/fixtures/dependencies/positive"
+    target = tmp_path / "positive"
+    target.mkdir()
+    for name in ("package-lock.json", "package.json", "requirements.txt"):
+        shutil.copyfile(source / (name + ".fixture"), target / name)
+    return target
+
+
 def test_canary_uses_db_parent_offline_sterile_env_and_strict_semantics(
-    tmp_path: Path,
+    positive_manifests: Path, tmp_path: Path,
 ) -> None:
     tmp_path.chmod(0o700)
     database = _immutable_candidate_db(tmp_path)
@@ -1580,7 +1590,7 @@ def test_canary_uses_db_parent_offline_sterile_env_and_strict_semantics(
     receipt = run_canary(
         current_lock=ROOT / "scanner-tools.lock.json",
         candidate_db=database,
-        positive_fixture=ROOT / "tests/scanner-runtime/fixtures/dependencies/positive",
+        positive_fixture=positive_manifests,
         zero_fixture=ROOT / "tests/scanner-runtime/fixtures/dependencies/zero",
         scratch_root=scratch,
         runner=runner,
@@ -1728,7 +1738,7 @@ def test_canary_json_rejects_list_result_envelope_drift(
 
 @pytest.mark.parametrize("empty_results_form", ["omitted", "null"])
 def test_canary_rejects_omitted_or_null_results_for_positive_fixture_as_output(
-    tmp_path: Path, empty_results_form: str
+    positive_manifests: Path, tmp_path: Path, empty_results_form: str
 ) -> None:
     tmp_path.chmod(0o700)
     database = _immutable_candidate_db(tmp_path)
@@ -1751,8 +1761,7 @@ def test_canary_rejects_omitted_or_null_results_for_positive_fixture_as_output(
         run_canary(
             current_lock=ROOT / "scanner-tools.lock.json",
             candidate_db=database,
-            positive_fixture=ROOT
-            / "tests/scanner-runtime/fixtures/dependencies/positive",
+            positive_fixture=positive_manifests,
             zero_fixture=ROOT / "tests/scanner-runtime/fixtures/dependencies/zero",
             scratch_root=scratch,
             runner=runner,
@@ -1763,7 +1772,7 @@ def test_canary_rejects_omitted_or_null_results_for_positive_fixture_as_output(
 
 
 def test_canary_rejects_empty_results_list_for_positive_fixture_semantically(
-    tmp_path: Path,
+    positive_manifests: Path, tmp_path: Path,
 ) -> None:
     tmp_path.chmod(0o700)
     database = _immutable_candidate_db(tmp_path)
@@ -1789,8 +1798,7 @@ def test_canary_rejects_empty_results_list_for_positive_fixture_semantically(
         run_canary(
             current_lock=ROOT / "scanner-tools.lock.json",
             candidate_db=database,
-            positive_fixture=ROOT
-            / "tests/scanner-runtime/fixtures/dependencies/positive",
+            positive_fixture=positive_manifests,
             zero_fixture=ROOT / "tests/scanner-runtime/fixtures/dependencies/zero",
             scratch_root=scratch,
             runner=_EmptyPositiveListRunner(),
@@ -1800,7 +1808,7 @@ def test_canary_rejects_empty_results_list_for_positive_fixture_semantically(
     assert captured.value.code == "semantics"
 
 
-def test_canary_rejects_nonzero_process_even_with_valid_output(tmp_path: Path) -> None:
+def test_canary_rejects_nonzero_process_even_with_valid_output(positive_manifests: Path, tmp_path: Path) -> None:
     tmp_path.chmod(0o700)
     database = _immutable_candidate_db(tmp_path)
     scratch = tmp_path / "scratch"
@@ -1809,8 +1817,7 @@ def test_canary_rejects_nonzero_process_even_with_valid_output(tmp_path: Path) -
         run_canary(
             current_lock=ROOT / "scanner-tools.lock.json",
             candidate_db=database,
-            positive_fixture=ROOT
-            / "tests/scanner-runtime/fixtures/dependencies/positive",
+            positive_fixture=positive_manifests,
             zero_fixture=ROOT / "tests/scanner-runtime/fixtures/dependencies/zero",
             scratch_root=scratch,
             runner=_FakeCanaryRunner(returncode=7),
@@ -1904,7 +1911,7 @@ def test_canary_assigns_every_allowlisted_failure_phase(
 
 
 def test_preflight_binds_exact_locks_binary_manifest_fixtures_and_bundle(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    positive_manifests: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     tmp_path.chmod(0o700)
     current = tmp_path / "current.json"
@@ -1963,7 +1970,7 @@ def test_preflight_binds_exact_locks_binary_manifest_fixtures_and_bundle(
         baked_lock=baked,
         trivy_path=trivy,
         tool_manifest=manifest,
-        positive_fixture=ROOT / "tests/scanner-runtime/fixtures/dependencies/positive",
+        positive_fixture=positive_manifests,
         zero_fixture=ROOT / "tests/scanner-runtime/fixtures/dependencies/zero",
         expected_architecture="arm64",
         scratch_root=scratch,
@@ -2008,8 +2015,7 @@ def test_preflight_binds_exact_locks_binary_manifest_fixtures_and_bundle(
             baked_lock=baked,
             trivy_path=trivy,
             tool_manifest=manifest,
-            positive_fixture=ROOT
-            / "tests/scanner-runtime/fixtures/dependencies/positive",
+            positive_fixture=positive_manifests,
             zero_fixture=ROOT / "tests/scanner-runtime/fixtures/dependencies/zero",
             expected_architecture="arm64",
             scratch_root=scratch,

@@ -22,7 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
-from sqlalchemy import Select, case, exists, func, select, tuple_
+from sqlalchemy import Select, case, exists, false, func, select, tuple_
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, aliased
@@ -35,7 +35,7 @@ from .preparation_budget import (
     budget_remaining,
     issue_budget,
 )
-from . import __version__
+from . import __version__, finding_gate
 from .artifact_boundary import (
     ArtifactBoundaryError,
     delete_scan_artifact_tree,
@@ -635,10 +635,13 @@ def _apply_finding_lifecycle(finding: Finding, action: str, reason: str | None =
     finding.revision += 1
 
 
-def _finding_to_out(item: Finding, ordinal: int, occurrence: dict[str, Any]) -> dict[str, Any]:
+def _finding_to_out(db: Session, item: Finding, ordinal: int, occurrence: dict[str, Any]) -> dict[str, Any]:
     lifecycle = _finding_lifecycle(item)
     gate_effect = "excluded" if item.suppressed else "non_blocking" if lifecycle["gate_exempt"] else "blocking"
+    assessment = finding_gate.review_scan(db, item.scan, rows_only=True)
+    secret = db.scalar(select(finding_gate.secret_evidence(db)).where(Finding.id == item.id)) if "secret" in assessment.categories else False
     return {
+        "gate_contribution": assessment.reasons_for(item, bool(secret)),
         "id": item.id,
         "scan_id": item.scan_id,
         "scan_finding_number": ordinal,
@@ -1623,13 +1626,18 @@ def _upsert_gate_policy(db: Session, project_id: int, values: dict[str, int | bo
     return policy
 
 
-def _recalculate_project_scan_gates(db: Session, project_id: int) -> None:
+def _recalculate_project_scan_gates(db: Session, project_id: int, *, include_bound: bool = True) -> None:
+    from .git_push_policy import bound_snapshot_projects
+
     db.flush()
+    project_ids = [project_id]
+    if include_bound:
+        project_ids.extend(bound_snapshot_projects(db, project_id))
     scans = list(
         db.scalars(
             select(Scan)
             .where(
-                Scan.project_id == project_id,
+                Scan.project_id.in_(project_ids),
                 Scan.status.in_(TERMINAL_SCAN_STATUSES),
             )
             .order_by(Scan.id.asc())
@@ -1637,9 +1645,13 @@ def _recalculate_project_scan_gates(db: Session, project_id: int) -> None:
         )
     )
     for scan in scans:
-        decision, reasons = _evaluate_scan_gate(db, scan)
-        scan.gate_decision = decision
-        scan.gate_reasons = _redacted_reason_list(reasons)
+        if scan.project_id == project_id:
+            decision, reasons = _evaluate_scan_gate(db, scan)
+            scan.gate_decision = decision
+            scan.gate_reasons = _redacted_reason_list(reasons)
+        # A policy change can change a displayed contribution while its
+        # individual finding and immutable scanner evidence stay identical.
+        scan.findings_revision += 1
         scan.revision += 1
         db.add(scan)
 
@@ -1665,7 +1677,7 @@ def _apply_runtime_gate_to_existing(
     project_ids = list(db.scalars(select(Project.id).order_by(Project.id)))
     for project_id in project_ids:
         _upsert_gate_policy(db, project_id, gate_values)
-        _recalculate_project_scan_gates(db, project_id)
+        _recalculate_project_scan_gates(db, project_id, include_bound=False)
 
 
 def _save_runtime_config(db: Session, payload: RuntimeConfigUpdate) -> None:
@@ -2290,11 +2302,6 @@ def _normalize_version(value: str | None) -> str:
     return (value or "").strip().removeprefix("v")
 
 
-def _is_secret_finding(finding: Finding) -> bool:
-    text = f"{finding.scanner} {finding.rule_id} {finding.message}".lower()
-    return "secret" in text or "token" in text or "private-key" in text
-
-
 def _scan_counts(db: Session, scan_id: int) -> dict[str, int]:
     rows = db.execute(
         select(Finding.severity, func.count(Finding.id))
@@ -2358,55 +2365,9 @@ def _distinct_findings_count(db: Session, where: Any | None = None) -> int:
 
 
 def _evaluate_gate(db: Session, scan: Scan, *, policy_project_id: int | None = None) -> tuple[str, list[str]]:
-    policy = db.scalar(select(GatePolicy).where(GatePolicy.project_id == (policy_project_id if policy_project_id is not None else scan.project_id), GatePolicy.active.is_(True)))
-    if not policy:
-        return "not_configured", []
+    result = finding_gate.evaluate(db, scan, policy_project_id if policy_project_id is not None else scan.project_id)
+    return result.decision, result.messages
 
-    gate_conditions = (
-        Finding.scan_id == scan.id,
-        Finding.suppressed.is_(False),
-        Finding.gate_exempt.is_(False),
-    )
-    critical = int(
-        db.scalar(
-            select(func.count(Finding.id)).where(
-                *gate_conditions, Finding.severity == "critical"
-            )
-        )
-        or 0
-    )
-    high = int(
-        db.scalar(
-            select(func.count(Finding.id)).where(
-                *gate_conditions, Finding.severity == "high"
-            )
-        )
-        or 0
-    )
-    searchable = func.lower(
-        Finding.scanner + " " + Finding.rule_id + " " + Finding.message
-    )
-    secrets = int(
-        db.scalar(
-            select(func.count(Finding.id)).where(
-                *gate_conditions,
-                searchable.contains("secret")
-                | searchable.contains("token")
-                | searchable.contains("private-key"),
-            )
-        )
-        or 0
-    )
-    reasons: list[str] = []
-
-    if policy.max_critical >= 0 and critical > policy.max_critical:
-        reasons.append(f"critical findings: {critical} > max {policy.max_critical}")
-    if policy.max_high >= 0 and high > policy.max_high:
-        reasons.append(f"high findings: {high} > max {policy.max_high}")
-    if policy.block_secrets and secrets:
-        reasons.append(f"secret findings: {secrets}")
-
-    return ("pass" if not reasons else "fail"), reasons
 
 
 def _evaluate_scan_gate(db: Session, scan: Scan, *, policy_project_id: int | None = None) -> tuple[str, list[str]]:
@@ -4955,6 +4916,7 @@ def get_scan_summary(scan_id: int, db: Session = Depends(get_db)) -> dict[str, A
         ).all()
     }
     return {
+        "gate_review": finding_gate.review_scan(db, scan).review(),
         "scan": {
             "id": scan.id,
             "project_id": scan.project_id,
@@ -5502,16 +5464,19 @@ def list_findings(
         after = int(reverse_numbers[-1]) - 1
 
     total = int(db.scalar(select(func.count(Finding.id)).where(*conditions)) or 0)
+    assessment = finding_gate.review_scan(db, scan, rows_only=True)
+    secret_column = finding_gate.secret_evidence(db) if "secret" in assessment.categories else false()
     fetched = list(
-        db.scalars(
-            select(Finding)
+        db.execute(
+            select(Finding, secret_column)
             .where(*conditions, Finding.scan_finding_number > after)
             .order_by(Finding.scan_finding_number.asc())
             .limit(limit + 1)
         )
     )
     has_more = len(fetched) > limit
-    items = fetched[:limit]
+    page = fetched[:limit]
+    items = [item for item, _ in page]
     ordinals = {item.id: item.scan_finding_number for item in items}
     occurrences = _finding_occurrence_metadata(db, items, ordinals)
     next_cursor = None
@@ -5524,7 +5489,8 @@ def list_findings(
         )
     return {
         "items": [
-            _finding_list_to_out(item, occurrences.get(item.id, {})) for item in items
+            {**_finding_list_to_out(item, occurrences.get(item.id, {})),
+             "gate_contribution": assessment.reasons_for(item, bool(secret))} for item, secret in page
         ],
         "total": total,
         "truncated": has_more,
@@ -5617,7 +5583,7 @@ def get_scan_local_finding(
     occurrence = _finding_occurrence_metadata(
         db, [finding], {finding.id: finding.scan_finding_number}
     ).get(finding.id, {})
-    detail = _finding_to_out(finding, finding.scan_finding_number, occurrence)
+    detail = _finding_to_out(db, finding, finding.scan_finding_number, occurrence)
     detail["findings_revision"] = scan.findings_revision
     return detail
 
@@ -5955,7 +5921,7 @@ def get_finding(finding_id: int, db: Session = Depends(get_db)) -> dict[str, Any
     ordinals = {finding.id: finding.scan_finding_number}
     occurrences = _finding_occurrence_metadata(db, [finding], ordinals)
     return _finding_to_out(
-        finding, finding.scan_finding_number, occurrences.get(finding.id, {})
+        db, finding, finding.scan_finding_number, occurrences.get(finding.id, {})
     )
 
 
@@ -6373,7 +6339,7 @@ def update_finding_lifecycle(finding_id: int, payload: FindingLifecycleUpdate, d
     ordinals = {finding.id: finding.scan_finding_number}
     occurrences = _finding_occurrence_metadata(db, [finding], ordinals)
     return _finding_to_out(
-        finding, finding.scan_finding_number, occurrences.get(finding.id, {})
+        db, finding, finding.scan_finding_number, occurrences.get(finding.id, {})
     )
 
 

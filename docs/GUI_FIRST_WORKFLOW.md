@@ -332,6 +332,18 @@ scan at the top. Status, gate and incomplete-evidence guidance stay above the
 review controls. The finding list and selected detail follow those controls;
 supporting scan metadata is below the review workspace.
 
+Choose **Show gate blockers** beside a failing gate to clear other filters and see every contributing row.
+The recorded scan gate and the current policy review can differ. A committed
+Git tree uses the registered repository's current policy for review. **Gate-eligible**
+shows every finding whose lifecycle allows it to count. **Gate blockers only** shows the distinct eligible findings behind exceeded severity thresholds
+or the secret gate. A finding can carry both reasons and counts once in that list.
+Use **Search findings**, **Severity** or **Scanner** to narrow the blocker list.
+Clearing the search restores the blockers for the selected filters.
+The Checkov service-account token-mount rule can contribute through a severity
+threshold. Its configuration message alone does not identify an exposed credential.
+VS Code's **Review blocking findings** opens this filter for the selected failed
+tree. If the policy has changed, the review shows its current result.
+
 Code evidence starts in a compact viewport near the offending range. Use
 **More code** to expand it, **Compact code** to return, or the keyboard-accessible
 **Max height** slider for a preferred height. Short snippets use their natural

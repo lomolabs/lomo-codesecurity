@@ -31,6 +31,21 @@ IDE enrollment remains available in Restricted Mode. Source operations and the
 integrated dashboard require Workspace Trust; the dashboard also requires
 persistent browser storage. CodeSecurity does not change either setting for you.
 
+### Review gate blockers and change a finding
+
+In the Web **Findings** view, select a scan and choose **Show gate blockers**
+beside the gate verdict. The list shows the findings that contribute to the
+current policy failure. Open a row to see which threshold or secret rule it
+tripped. Search within that list by finding ID, rule, message, path, scanner or
+severity. Severity and scanner filters narrow it further. Clearing the search
+keeps the blocker filter active. **Show all findings** restores the full list.
+
+In VS Code, hover over the reported text or the inline CodeSecurity annotation. Each finding lists its details and actions to change lifecycle, open Web detail, run Advisor, rescan or request deletion. If the scanner reported a single
+point, you can hover over text elsewhere on that line. Place the cursor on
+the finding line and open **Quick Fix → Change CodeSecurity lifecycle…**
+(`⌘.` on Mac, `Ctrl+.` on Linux or Windows). When more than one finding matches,
+choose its finding ID. The lightbulb follows the editor's lightbulb setting.
+
 ## Choose repositories and scan
 
 Use **Choose repositories in this workspace…** when one opened parent contains

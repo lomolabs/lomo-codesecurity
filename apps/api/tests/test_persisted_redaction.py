@@ -352,7 +352,7 @@ def test_api_serializers_defensively_redact_persisted_rows() -> None:
             "project_list": list_projects(db=db),
             "project_get": get_project(project.id, db=db),
             "scan": _scan_to_out(scan),
-            "finding": _finding_to_out(finding, 1, {}),
+            "finding": _finding_to_out(db, finding, 1, {}),
             "job": _job_to_out(db, job),
             "packet": _finding_packet(finding, scan, project, "S1-F001"),
         }

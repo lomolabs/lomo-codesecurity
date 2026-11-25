@@ -3035,6 +3035,10 @@ tr.clickable:focus-visible td {
   white-space: nowrap;
 }
 
+.finding-blocker-label {
+  color: #ffb0a4;
+}
+
 .finding-list-repeat {
   color: #e2d06f;
 }

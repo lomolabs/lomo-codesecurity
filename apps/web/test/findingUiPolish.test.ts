@@ -14,6 +14,8 @@ import {
   findingBulkActionLimit,
   findingBulkSelectionDisabledReason,
   findingGateEffectLabel,
+  findingContributionLabel,
+  contributesToGate,
   findingLifecycleActionDisabledReason,
   findingLifecycleActionLabel,
 } from '../src/findingLifecycle.ts';
@@ -224,13 +226,19 @@ test('finding lifecycle actions use the visible product wording', async () => {
   assert.equal(findingLifecycleActionLabel('false_positive'), 'a false positive');
   assert.equal(findingLifecycleActionLabel('fixed'), 'fixed');
   assert.equal(findingLifecycleActionLabel('needs_review'), 'needs review');
-  assert.equal(findingLifecycleActionLabel('open'), 'open and blocking');
-  assert.equal(findingLifecycleActionDisabledReason('open', 'open'), 'This finding is already open and blocking.');
+  assert.equal(findingLifecycleActionLabel('open'), 'open and gate-eligible');
+  assert.equal(findingLifecycleActionDisabledReason('open', 'open'), 'This finding is already open and gate-eligible.');
   assert.equal(findingLifecycleActionDisabledReason('fixed', 'open'), null);
   assert.equal(findingLifecycleActionDisabledReason('unknown', 'unknown'), null);
-  assert.equal(findingGateEffectLabel('blocking'), 'Blocking');
+  assert.equal(findingGateEffectLabel('blocking'), 'Eligible for gate evaluation');
   assert.equal(findingGateEffectLabel('non_blocking'), 'Non-blocking for gate');
   assert.equal(findingGateEffectLabel('excluded'), 'Not counted');
+  assert.equal(contributesToGate(['critical', 'secret']), true);
+  assert.equal(contributesToGate([]), false);
+  assert.equal(contributesToGate(null), false);
+  assert.match(findingContributionLabel(['critical', 'secret']), /critical, secret/);
+  assert.match(findingContributionLabel([]), /Does not contribute/);
+  assert.match(findingContributionLabel(undefined), /unavailable/);
   assert.equal(findingAdvisorVerdictLabel('true_positive'), 'Likely valid finding');
   assert.equal(findingAdvisorVerdictLabel('false_positive'), 'Likely false positive');
   assert.equal(findingAdvisorVerdictLabel('needs_review'), 'Needs review');

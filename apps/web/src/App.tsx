@@ -64,6 +64,8 @@ import {
   findingAdvisorVerdictLabel,
   findingBulkSelectionDisabledReason,
   findingGateEffectLabel,
+  findingContributionLabel,
+  contributesToGate,
   findingLifecycleActionDisabledReason,
   findingLifecycleActionLabel,
 } from './findingLifecycle';
@@ -225,6 +227,14 @@ type RouteSurfaceAttributes = {
 const severityOrder = ['critical', 'high', 'medium', 'low', 'info'];
 const activeWorkStatuses = new Set(['queued', 'leased', 'pending', 'running', 'analyzing', 'cancelling']);
 const workbenchViews = new Set<View>(['overview', 'projects', 'jobs', 'scans', 'findings', 'tools', 'settings']);
+const findingLifecycleFilters: Record<string, string> = {
+  all: 'all lifecycle states',
+  active: 'active only',
+  contributing: 'gate blockers only',
+  eligible: 'gate-eligible',
+  non_blocking: 'non-blocking',
+  ignored: 'ignored / not counted',
+};
 const findingsPageSize = 25;
 const findingsMaximumBatchSize = findingsPageSize;
 const findingListRowHeightRem = 8;
@@ -911,6 +921,7 @@ function detailMatchesFindingSummary(detail: Finding, summary: Finding) {
     && detail.lifecycle_status === summary.lifecycle_status
     && detail.gate_exempt === summary.gate_exempt
     && detail.gate_effect === summary.gate_effect
+    && detail.gate_contribution?.join() === summary.gate_contribution?.join()
     && detail.occurrence_count === summary.occurrence_count
     && detail.is_repeat === summary.is_repeat
     && detail.first_seen_scan_id === summary.first_seen_scan_id
@@ -972,6 +983,7 @@ function sameScanSummaryRevision(left: ScanSummary | null, right: ScanSummary) {
     && left.findings_revision === right.findings_revision
     && JSON.stringify(left.scan) === JSON.stringify(right.scan)
     && JSON.stringify(left.findings) === JSON.stringify(right.findings)
+    && JSON.stringify(left.gate_review) === JSON.stringify(right.gate_review)
   );
 }
 
@@ -986,6 +998,18 @@ function validScanSummary(scanId: number, summary: ScanSummary) {
     && Number.isSafeInteger(summary.scan.project_id)
     && summary.scan.project_id > 0
     && Array.isArray(summary.scan.gate_reasons)
+    && (summary.gate_review === undefined || (
+      summary.gate_review !== null
+      && ['pass', 'fail', 'not_configured', 'incomplete', 'unavailable'].includes(summary.gate_review.decision)
+      && (summary.gate_review.policy_project_id === null || (Number.isSafeInteger(summary.gate_review.policy_project_id)
+        && summary.gate_review.policy_project_id > 0))
+      && Array.isArray(summary.gate_review.reasons) && summary.gate_review.reasons.length <= 3
+      && summary.gate_review.reasons.every(reason => typeof reason === 'string' && reason.length <= 256)
+      && (summary.gate_review.decision === 'pass' ? summary.gate_review.contributors === 0
+        : summary.gate_review.decision === 'fail' ? Number.isSafeInteger(summary.gate_review.contributors)
+          && (summary.gate_review.contributors ?? 0) > 0 && (summary.gate_review.contributors ?? 0) <= counts.active
+        : summary.gate_review.contributors === null)
+    ))
     && Number.isSafeInteger(summary.revision)
     && summary.revision >= 1
     && Number.isSafeInteger(summary.findings_revision)
@@ -1499,6 +1523,7 @@ function findingsRevisionKey(findings: Finding[]): RevisionKey {
     finding.lifecycle_status,
     finding.gate_exempt,
     finding.gate_exempt_reason,
+    finding.gate_contribution?.join(),
     finding.occurrence_count,
     finding.is_repeat,
     finding.first_seen_display_id,
@@ -1572,6 +1597,7 @@ function replaceWorkbenchLocation(
   // Bootstrap authority never belongs in the query string and the fragment is
   // deliberately cleared after ordinary navigation.
   const parameters = new URLSearchParams(window.location.search);
+  if (view !== 'findings' || String(scanId) !== parameters.get('scan') || scanFindingNumber) parameters.delete('gate');
   parameters.set('view', view);
   parameters.delete('scan');
   parameters.delete('finding');
@@ -1680,6 +1706,7 @@ function sameFindingListRow(left: FindingListRowProps, right: FindingListRowProp
     && previous.suppressed === next.suppressed
     && previous.lifecycle_status === next.lifecycle_status
     && previous.gate_exempt === next.gate_exempt
+    && previous.gate_contribution?.join() === next.gate_contribution?.join()
     && previous.occurrence_count === next.occurrence_count
     && previous.is_repeat === next.is_repeat
     && previous.first_seen_display_id === next.first_seen_display_id
@@ -1724,6 +1751,7 @@ export const FindingListRow = memo(function FindingListRow({
           findingLabel(finding),
           finding.severity,
           lifecycleLabel(finding),
+          contributesToGate(finding.gate_contribution) ? 'Gate blocker' : '',
           finding.occurrence_count > 1 ? (finding.is_repeat ? 'repeat' : `${finding.occurrence_count}x`) : '',
           finding.scanner,
           finding.rule_id,
@@ -1749,7 +1777,7 @@ export const FindingListRow = memo(function FindingListRow({
         </span>
         <strong className="finding-rule" title={`${evidencePresentation.title} · ${finding.rule_id}`}>{evidencePresentation.title}</strong>
         <span className="finding-location" title={`${fullPath}${finding.start_line ? ` · ${findingLocation(finding)}` : ''}`}>{findingLocation(finding)}</span>
-        <span className="finding-message" title={finding.rule_id}>{evidencePresentation.label} · {finding.rule_id}</span>
+        <span className="finding-message" title={finding.rule_id}>{contributesToGate(finding.gate_contribution) && <strong className="finding-blocker-label">Gate blocker · </strong>}{evidencePresentation.label} · {finding.rule_id}</span>
       </button>
     </div>
   );
@@ -1974,6 +2002,7 @@ function sameFindingDetailContent(left: FindingDetailContentProps, right: Findin
     && previous.end_line === next.end_line
     && previous.end_column === next.end_column
     && previous.gate_effect === next.gate_effect
+    && previous.gate_contribution?.join() === next.gate_contribution?.join()
     && findingLifecycleReason(previous) === findingLifecycleReason(next)
     && previous.code_snippet === next.code_snippet
   );
@@ -2041,7 +2070,7 @@ const FindingDetailContent = memo(function FindingDetailContent({
     { action: 'false_positive', label: 'False positive', icon: <Ban size={14} /> },
     { action: 'fixed', label: 'Mark fixed', icon: <CheckCircle2 size={14} /> },
     { action: 'needs_review', label: 'Needs review', icon: <AlertTriangle size={14} /> },
-    { action: 'open', label: 'Reopen as blocking', icon: <Undo2 size={14} /> },
+    { action: 'open', label: 'Reopen as gate-eligible', icon: <Undo2 size={14} /> },
   ] as const;
   return (
     <>
@@ -2161,9 +2190,10 @@ const FindingDetailContent = memo(function FindingDetailContent({
         <span title={lifecycleTitle(finding)}>
           Lifecycle <strong>{lifecycleLabel(finding)}</strong>
         </span>
-        <span title="Authoritative deterministic gate effect for this finding revision.">
-          Gate effect <strong>{findingGateEffectLabel(finding.gate_effect)}</strong>
+        <span title="Lifecycle eligibility and the current policy assessment for this finding.">
+          Gate eligibility <strong>{findingGateEffectLabel(finding.gate_effect)}</strong>
         </span>
+        {finding.gate_contribution !== undefined && <span>{findingContributionLabel(finding.gate_contribution)}</span>}
       </div>
       {lifecycleLayoutReason ? (
         <p
@@ -2990,6 +3020,12 @@ function Workbench() {
     // changed selection/history falls back to the ordinary exact read.
     const summaryScanId = reason === 'navigation' && viewRef.current === 'findings'
       ? selectedScanIdRef.current : null;
+    // Historical finding review uses persisted evidence even when the scanner
+    // is offline. A new scan still requires a fresh, valid preflight.
+    function unavailableDuringReview<T>(error: unknown, fallback: T): T {
+      if (viewRef.current === 'findings' && isApiError(error, 'scanner_runtime_unavailable')) return fallback;
+      throw error;
+    }
     const operation = (async () => {
       try {
         const [navigationSummary, , nextSummary, nextProjects, listedScans, nextTools, nextScannerLifecycle, nextScannerPreflight, listedJobs, activeJobs, nextIdeCapabilities, nextAdvisorProviders, nextSourceBoundary] = await Promise.all([
@@ -3015,9 +3051,17 @@ function Workbench() {
           routeCollections && !routeCollections.summary ? retained.summary! : api.summary(controller.signal),
           routeCollections && !routeCollections.projects ? retained.projects : api.projects(controller.signal),
           routeCollections && !routeCollections.scans ? retained.scans : api.scans(controller.signal),
-          routeCollections && !routeCollections.tools ? retained.tools : api.tools(controller.signal),
+          routeCollections && !routeCollections.tools ? retained.tools : api.tools(controller.signal).catch(error => unavailableDuringReview(error, [])),
           routeCollections && !routeCollections.lifecycle ? retained.scannerLifecycle! : api.scannerLifecycle(controller.signal),
-          routeCollections && !routeCollections.preflight ? retained.scannerPreflight! : api.scannerPreflight(controller.signal),
+          routeCollections && !routeCollections.preflight ? retained.scannerPreflight! : api.scannerPreflight(controller.signal).then(
+            preflight => {
+              if (!preflight || !validScannerPreflight(preflight)) {
+                throw new Error('CodeSecurity returned an invalid scanner readiness preflight.');
+              }
+              return preflight;
+            },
+            error => unavailableDuringReview(error, null),
+          ),
           routeCollections && !routeCollections.jobs ? jobsRef.current : api.jobs(controller.signal),
           api.activeJobs(controller.signal),
           api.ideCapabilities(controller.signal),
@@ -3038,9 +3082,6 @@ function Workbench() {
           nextSourceBoundary,
           setSourceBoundary,
         );
-        if (!validScannerPreflight(nextScannerPreflight)) {
-          throw new Error('CodeSecurity returned an invalid scanner readiness preflight.');
-        }
         const activeJobIds = new Set(activeJobs.map((job) => job.id));
         const transitionedJobIds = activeJobIdsRef.current.filter((jobId) => !activeJobIds.has(jobId));
         const transitionedJobs = await Promise.all(transitionedJobIds
@@ -3148,7 +3189,7 @@ function Workbench() {
           scans: scanRevisionRows(nextScans),
           tools: toolsRevisionKey(nextTools),
           scannerLifecycle: scannerLifecycleRevisionKey(nextScannerLifecycle),
-          scannerPreflight: scannerPreflightRevisionKey(nextScannerPreflight),
+          scannerPreflight: nextScannerPreflight ? scannerPreflightRevisionKey(nextScannerPreflight) : [],
           jobs: jobsRevisionKey(nextJobs),
         };
         const previous = dashboardRevisionRef.current;
@@ -6466,6 +6507,7 @@ function ScanTable({
 }
 
 type FindingsStaticContentProps = {
+  gateReview?: ScanSummary['gate_review'];
   activeFindingsCount: number;
   advisorProviderReadiness: AdvisorProviderReadiness;
   advisorCandidateCount: number;
@@ -6498,6 +6540,7 @@ type FindingsStaticContentProps = {
 };
 
 const FindingsStaticContent = memo(function FindingsStaticContent({
+  gateReview,
   activeFindingsCount,
   advisorProviderReadiness,
   advisorCandidateCount,
@@ -6552,7 +6595,7 @@ const FindingsStaticContent = memo(function FindingsStaticContent({
   const activeFilterLabels = [
     severityFilter !== 'all' ? severityFilter : null,
     scannerFilter !== 'all' ? scannerFilter : null,
-    lifecycleFilter !== 'all' ? lifecycleFilter.replace(/_/g, ' ') : null,
+    lifecycleFilter !== 'all' ? findingLifecycleFilters[lifecycleFilter] : null,
   ].filter((label): label is string => label !== null);
   return (
     <div className="finding-review-header">
@@ -6569,10 +6612,22 @@ const FindingsStaticContent = memo(function FindingsStaticContent({
         <div className="scan-metrics">
           <Stat icon={Activity} label="Status" value={selectedScan?.status || '-'} />
           <div className="finding-gate-metric" data-gate-decision={selectedScan?.gate_decision || 'pending'}>
-            <Stat icon={Shield} label="Gate" value={selectedScan?.gate_decision || 'pending'} />
+            <Stat icon={Shield} label="Recorded scan gate" value={selectedScan?.gate_decision || 'pending'} />
+            {gateReview && <small>Current policy{gateReview.policy_project_id ? ` · project #${gateReview.policy_project_id}` : ''}: {gateReview.decision.replace('_', ' ')}{gateReview.contributors !== null ? ` · ${gateReview.contributors} contributing` : ''}</small>}
+            {(gateReview?.decision === 'fail' || lifecycleFilter === 'contributing') && <button type="button" className="secondary-action"
+              aria-pressed={lifecycleFilter === 'contributing'}
+              onClick={() => {
+                onClearFilters();
+                if (lifecycleFilter !== 'contributing') onLifecycleFilterChange('contributing');
+              }}>
+              {lifecycleFilter === 'contributing' ? 'Show all findings' : 'Show gate blockers'}
+            </button>}
           </div>
           <Stat icon={FileSearch} label="Active Findings" value={activeFindingsCount} />
         </div>
+        {gateReview?.reasons.length ? <ul aria-label="Current policy reasons">
+          {gateReview.reasons.map(reason => <li key={reason}>{reason}</li>)}
+        </ul> : null}
         <FindingProtectionContext project={selectedProject} scanRevision={selectedScan?.revision} onOpen={onOpenProtection} />
       </div>
 
@@ -6637,11 +6692,9 @@ const FindingsStaticContent = memo(function FindingsStaticContent({
                 ))}
               </select>
               <select aria-label="Lifecycle" value={lifecycleFilter} onChange={(event) => onLifecycleFilterChange(event.target.value)}>
-                <option value="all">all lifecycle states</option>
-                <option value="active">active only</option>
-                <option value="blocking">gate-blocking</option>
-                <option value="non_blocking">non-blocking</option>
-                <option value="ignored">ignored / not counted</option>
+                {Object.entries(findingLifecycleFilters).map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
               </select>
             </div>
             <div className="scanner-grid">
@@ -6866,7 +6919,11 @@ function Findings({
   const [query, setQuery] = useState('');
   const [severityFilter, setSeverityFilter] = useState('all');
   const [scannerFilter, setScannerFilter] = useState('all');
-  const [lifecycleFilter, setLifecycleFilter] = useState('all');
+  const [lifecycleFilter, setLifecycleFilter] = useState(() => {
+    const route = new URLSearchParams(window.location.search);
+    return route.get('view') === 'findings' && route.has('scan') && !route.has('finding')
+      && route.get('gate') === 'contributing' ? 'contributing' : 'all';
+  });
   const [selectedFindingIds, setSelectedFindingIds] = useState<Set<number>>(new Set());
   const [findingPage, setFindingPage] = useState(1);
   const [snippetHeight, setSnippetHeight] = useState<number>(evidenceHeightControl.initial);
@@ -6894,13 +6951,15 @@ function Findings({
   const ignoredCount = authoritativeCounts?.suppressed
     ?? findings.filter((finding) => finding.suppressed).length;
   const activeFindingsCount = authoritativeCounts?.active ?? activeFindings.length;
-  const scannerCounts = useMemo(
-    () => authoritativeCounts?.scanner_counts || activeFindings.reduce<Record<string, number>>((acc, finding) => {
-        acc[finding.scanner] = (acc[finding.scanner] || 0) + 1;
-        return acc;
-      }, {}),
-    [activeFindings, authoritativeCounts?.scanner_counts],
-  );
+  const scannerCounts = useMemo(() => {
+    const counts = { ...authoritativeCounts?.scanner_counts };
+    for (const finding of findings) {
+      // An ignored-only scanner still belongs in the selector. Its active count is zero.
+      counts[finding.scanner] ??= 0;
+      if (!authoritativeCounts && !finding.suppressed) counts[finding.scanner]++;
+    }
+    return counts;
+  }, [authoritativeCounts, findings]);
   const filteredFindings = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return findings.filter((finding) => {
@@ -6909,12 +6968,13 @@ function Findings({
       const lifecycleMatch =
         lifecycleFilter === 'all' ||
         (lifecycleFilter === 'active' && !finding.suppressed) ||
-        (lifecycleFilter === 'blocking' && !finding.suppressed && !finding.gate_exempt) ||
+        (lifecycleFilter === 'contributing' && contributesToGate(finding.gate_contribution)) ||
+        (lifecycleFilter === 'eligible' && !finding.suppressed && !finding.gate_exempt) ||
         (lifecycleFilter === 'non_blocking' && !finding.suppressed && finding.gate_exempt) ||
         (lifecycleFilter === 'ignored' && finding.suppressed);
       const queryMatch =
         !needle ||
-        `${finding.display_id} ${finding.id} ${finding.rule_id} ${finding.message} ${finding.file_path} ${fullFindingPath(selectedProject, finding)} ${finding.scanner} ${lifecycleLabel(finding)}`.toLowerCase().includes(needle);
+        `${finding.display_id} ${finding.id} ${finding.rule_id} ${finding.message} ${finding.file_path} ${fullFindingPath(selectedProject, finding)} ${finding.scanner} ${finding.severity} ${lifecycleLabel(finding)} ${contributesToGate(finding.gate_contribution) ? 'gate blocker' : ''}`.toLowerCase().includes(needle);
       return severityMatch && scannerMatch && lifecycleMatch && queryMatch;
     });
   }, [findings, lifecycleFilter, query, scannerFilter, selectedProject, severityFilter]);
@@ -7047,6 +7107,10 @@ function Findings({
   const activeFindingId = selectedVisible ? selectedFindingId : fallbackFindingId;
   const emptyFindingMessage = !selectedScanId
     ? 'Select a scan to review its findings.'
+    : lifecycleFilter === 'contributing' && !scanSummary?.gate_review
+      ? 'The current policy contribution is unavailable for this scan.'
+    : lifecycleFilter === 'contributing' && scanSummary?.gate_review?.decision !== 'fail'
+      ? `No current failure set. Policy review: ${scanSummary?.gate_review?.decision.replace('_', ' ')}.`
     : findings.length
       ? 'No findings match the current filters. Clear filters to review this scan.'
       : 'No findings are available to display for this scan.';
@@ -7249,6 +7313,7 @@ function Findings({
       >
         <FindingsStaticContent
           activeFindingsCount={activeFindingsCount}
+          gateReview={scanSummary?.scan.id === selectedScanId ? scanSummary?.gate_review : undefined}
           advisorProviderReadiness={advisorProviderReadiness}
           advisorCandidateCount={advisorCandidateCount}
           aiMode={health?.ai.mode ?? null}

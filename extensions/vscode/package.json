@@ -468,11 +468,15 @@
     "@azure/identity": {
       "@azure/msal-node": "7.1.1"
     },
+    "@vscode/vsce": {
+      "glob": "14.0.6",
+      "minimatch": "11.0.9"
+    },
     "brace-expansion": "5.0.12",
     "fast-uri": "3.1.9",
     "js-yaml": "4.3.2",
     "markdown-it": "14.3.3",
-    "qs": "6.16.0",
+    "qs": "6.17.1",
     "undici": "7.30.1"
   },
   "repository": {

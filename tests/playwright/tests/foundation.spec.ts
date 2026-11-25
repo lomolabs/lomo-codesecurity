@@ -868,6 +868,49 @@ test('navigation replaces the accessible route identity with the visible view', 
   guards.assertClean();
 });
 
+referenceTest('blocked Git review opens only current contributors and preserves the eligible population', async ({ page, request, baseURL }) => {
+  if (!baseURL) throw new Error('Playwright baseURL is required.');
+  await request.post('/__test/reset', { data: { profile: 'focus', generation: 1 } });
+  const guards = await installRuntimeGuards(page, new URL(baseURL).origin);
+  await page.route('**/v1/scans/41/summary', async route => {
+    const response = await route.fetch();
+    await route.fulfill({ response, json: { ...await response.json(), gate_review: {
+      policy_project_id: 11, decision: 'fail', reasons: ['high findings: 1 > max 0'], contributors: 1,
+    } } });
+  });
+  await page.route('**/v1/scans/41/findings?*', async route => {
+    const response = await route.fetch();
+    const body = await response.json();
+    await route.fulfill({ response, json: { ...body, items: body.items.map((row: { id: number }) => ({
+      ...row, gate_contribution: row.id === 501 ? ['high'] : [],
+    })) } });
+  });
+  await page.route('**/v1/findings/501', async route => {
+    const response = await route.fetch();
+    await route.fulfill({ response, json: { ...await response.json(), gate_contribution: ['high'] } });
+  });
+  await page.goto('/?view=findings&scan=41&gate=contributing');
+  await expect(page.locator('.finding-list-item')).toHaveCount(1);
+  await expect(page.locator('.finding-list-item')).toContainText('S41-F001');
+  await expect(page.getByText(/Current policy.*project #11.*1 contributing/)).toBeVisible();
+  await expect(page.locator('.finding-list-item .finding-blocker-label')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Show all findings', exact: true }).click();
+  await expect(page.locator('.finding-list-item')).toHaveCount(14);
+  await page.getByRole('textbox', { name: 'Search findings' }).fill('no-such-rule');
+  await page.getByRole('button', { name: 'Show gate blockers', exact: true }).click();
+  await expect(page.locator('.finding-list-item')).toHaveCount(1);
+  await expect(page.locator('.finding-list-item')).toContainText('S41-F001');
+  await expandFindingDisclosure(page, '.finding-filter-details');
+  const filter = page.getByRole('combobox', { name: 'Lifecycle', exact: true });
+  await expect(filter).toHaveValue('contributing');
+  await filter.selectOption({ label: 'gate-eligible' });
+  await expect(page.locator('.finding-filter-details summary small')).toHaveText('gate-eligible');
+  await expect(page.locator('.finding-list-item')).toHaveCount(12);
+  await filter.selectOption('all');
+  await expect(page.locator('.finding-list-item')).toHaveCount(14);
+  guards.assertClean();
+});
+
 test('Findings exposes the flagged source in the initial desktop review viewport', async ({ page, request, baseURL }, testInfo) => {
   test.skip(!['desktop-1440', 'desktop-1920'].includes(testInfo.project.name),
     'This contract concerns the initial normal desktop review viewport.');

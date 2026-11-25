@@ -448,6 +448,7 @@ class FindingOut(BaseModel):
     first_seen_scan_id: int | None = None
     revision: int = 1
     gate_effect: Literal["blocking", "non_blocking", "excluded"]
+    gate_contribution: list[Literal["critical", "high", "secret"]] | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -653,6 +654,7 @@ class FindingListItemOut(BaseModel):
     advisor_verdict: str | None = None
     advisor_confidence: float | None = None
     gate_effect: Literal["blocking", "non_blocking", "excluded"]
+    gate_contribution: list[Literal["critical", "high", "secret"]] | None = None
     revision: int
     created_at: datetime
 
@@ -776,7 +778,15 @@ class ScanFindingCountsOut(BaseModel):
     scanner_counts: dict[str, int]
 
 
+class GateReviewOut(BaseModel):
+    policy_project_id: int | None
+    decision: Literal["pass", "fail", "not_configured", "incomplete", "unavailable"]
+    reasons: list[str]
+    contributors: int | None = Field(ge=0)
+
+
 class ScanSummaryOut(BaseModel):
+    gate_review: GateReviewOut
     scan: ScanSummaryResourceOut
     findings: ScanFindingCountsOut
     revision: int = Field(ge=1)

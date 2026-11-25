@@ -1275,10 +1275,10 @@ def preflight_argv(
         _mount(ZERO_FIXTURE_PATH, f"{REVIEW_ROOT}/zero", readonly=True),
     ]
     if inputs.component_id == "trivy-db":
-        mounts.insert(
-            1,
-            _mount(POSITIVE_FIXTURE_PATH, positive, readonly=True),
-        )
+        mounts[1:1] = [
+            _mount(POSITIVE_FIXTURE_PATH / (name + ".fixture"), f"{positive}/{name}", readonly=True)
+            for name in ("package-lock.json", "package.json", "requirements.txt")
+        ]
     command = _docker_run_prefix(
         docker=docker,
         image_id=inputs.image_id,
@@ -1381,10 +1381,10 @@ def canary_argv(
         _mount(ZERO_FIXTURE_PATH, f"{REVIEW_ROOT}/zero", readonly=True),
     ]
     if inputs.component_id == "trivy-db":
-        mounts.insert(
-            2,
-            _mount(POSITIVE_FIXTURE_PATH, positive, readonly=True),
-        )
+        mounts[2:2] = [
+            _mount(POSITIVE_FIXTURE_PATH / (name + ".fixture"), f"{positive}/{name}", readonly=True)
+            for name in ("package-lock.json", "package.json", "requirements.txt")
+        ]
     elif inputs.support_trivy_db is not None:
         support = _require_immutable_support_directory(
             inputs.support_trivy_db, identity=inputs.identity

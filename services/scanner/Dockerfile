@@ -155,7 +155,10 @@ COPY scanner-rules.lock.json /usr/local/share/kodesec/locks/scanner-rules.lock.j
 COPY services/scanner/rules/opengrep /usr/local/share/kodesec/rules/opengrep
 COPY tests/scanner-runtime/fixtures/opengrep /usr/local/share/kodesec/canaries/opengrep
 COPY tests/scanner-runtime/fixtures/bearer/rules-canary /usr/local/share/kodesec/canaries/bearer/rules-canary
-COPY tests/scanner-runtime/fixtures/dependencies /usr/local/share/kodesec/canaries/dependencies
+COPY tests/scanner-runtime/fixtures/dependencies/positive/package-lock.json.fixture /usr/local/share/kodesec/canaries/dependencies/positive/package-lock.json
+COPY tests/scanner-runtime/fixtures/dependencies/positive/package.json.fixture /usr/local/share/kodesec/canaries/dependencies/positive/package.json
+COPY tests/scanner-runtime/fixtures/dependencies/positive/requirements.txt.fixture /usr/local/share/kodesec/canaries/dependencies/positive/requirements.txt
+COPY tests/scanner-runtime/fixtures/dependencies/zero /usr/local/share/kodesec/canaries/dependencies/zero
 COPY tests/scanner-runtime/fixtures/iac /usr/local/share/kodesec/canaries/iac
 
 RUN pip install --disable-pip-version-check --no-build-isolation --no-deps .

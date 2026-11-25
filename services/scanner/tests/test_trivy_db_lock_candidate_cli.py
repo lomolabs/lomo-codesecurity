@@ -334,11 +334,13 @@ def test_exact_preflight_argv_is_network_none_and_mounts_only_reviewed_inputs(
     argv = cli.preflight_argv(inputs)
     _assert_hardened(argv, network="none")
     mounts = _mounts(argv)
-    assert len(mounts) == 3
+    assert len(mounts) == 5
     assert all(value.endswith(",readonly") for value in mounts)
     assert str(cli.CURRENT_LOCK_PATH.resolve()) in mounts[0]
-    assert str(cli.POSITIVE_FIXTURE_PATH.resolve()) in mounts[1]
-    assert str(cli.ZERO_FIXTURE_PATH.resolve()) in mounts[2]
+    for name, mount in zip(("package-lock.json", "package.json", "requirements.txt"), mounts[1:4], strict=True):
+        assert str(cli.POSITIVE_FIXTURE_PATH / (name + ".fixture")) in mount
+        assert f"/positive/{name}," in mount
+    assert str(cli.ZERO_FIXTURE_PATH.resolve()) in mounts[4]
     assert str(inputs.output_dir) not in "\0".join(argv)
     assert argv[-19:] == (
         "preflight",
@@ -401,7 +403,7 @@ def test_canary_argv_is_network_none_and_all_mounts_are_read_only(
     argv = cli.canary_argv(inputs)
     _assert_hardened(argv, network="none")
     mounts = _mounts(argv)
-    assert len(mounts) == 4
+    assert len(mounts) == 6
     assert all(value.endswith(",readonly") for value in mounts)
     assert (
         "--tmpfs=/run/kodesec-review/candidate-cache:"
@@ -409,8 +411,10 @@ def test_canary_argv_is_network_none_and_all_mounts_are_read_only(
         f"uid={inputs.identity.uid},gid={inputs.identity.gid}"
     ) in argv
     assert str(candidate_db) in mounts[1]
-    assert str(cli.POSITIVE_FIXTURE_PATH.resolve()) in mounts[2]
-    assert str(cli.ZERO_FIXTURE_PATH.resolve()) in mounts[3]
+    for name, mount in zip(("package-lock.json", "package.json", "requirements.txt"), mounts[2:5], strict=True):
+        assert str(cli.POSITIVE_FIXTURE_PATH / (name + ".fixture")) in mount
+        assert f"/positive/{name}," in mount
+    assert str(cli.ZERO_FIXTURE_PATH.resolve()) in mounts[5]
     assert argv[-11:] == (
         "canary",
         "--current-lock",

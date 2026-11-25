@@ -4140,13 +4140,13 @@ test('scan rows and findings filters expose complete keyboard and clear-state be
   await surface.getByLabel('Scanner', { exact: true }).selectOption('checkov');
   await surface.getByLabel('Lifecycle', { exact: true }).selectOption('non_blocking');
   await expect(filterSummary).toContainText('3 active');
-  await expect(filterSummary).toContainText('medium · checkov · non blocking');
+  await expect(filterSummary).toContainText('medium · checkov · non-blocking');
   await filterSummary.focus();
   await filterSummary.press(' ');
   await expect(filters).not.toHaveAttribute('open', '');
   await expect(filterSummary).toBeFocused();
   await expect(surface.getByLabel('Severity', { exact: true })).toBeHidden();
-  await expect(filterSummary).toContainText('medium · checkov · non blocking');
+  await expect(filterSummary).toContainText('medium · checkov · non-blocking');
   await expect(clearFilters).toBeEnabled();
   await expect(surface.locator('.finding-list-item')).toHaveCount(1);
   const selectedDetailResponse = await selectedDetailResponsePromise;
@@ -5150,7 +5150,7 @@ test('every single-finding lifecycle menu action persists its exact state', asyn
     ['False positive', 'false_positive', 'a false positive'],
     ['Mark fixed', 'fixed', 'fixed'],
     ['Needs review', 'needs_review', null],
-    ['Reopen as blocking', 'open', null],
+    ['Reopen as gate-eligible', 'open', null],
   ] as const;
 
   for (const [buttonName, expectedStatus, reasonLabel] of actions) {
