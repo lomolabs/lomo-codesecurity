@@ -8,7 +8,7 @@ Local security scanning, finding review and checks before you push.
 [![CodeQL](https://github.com/lomolabs/lomo-codesecurity/actions/workflows/security.yml/badge.svg?branch=main)](https://github.com/lomolabs/lomo-codesecurity/actions/workflows/security.yml)
 [Apache-2.0](LICENSE)
 
-[Quickstart](#quickstart) · [Daily workflow](docs/GUI_FIRST_WORKFLOW.md) · [Scanners](docs/SCANNER_TOOLS.md) · [Release status](docs/RELEASE_STATUS.md) · [Security](SECURITY.md)
+[Project site](https://cs.lomo.dev/) · [Quickstart](#quickstart) · [Daily workflow](docs/GUI_FIRST_WORKFLOW.md) · [Scanners](docs/SCANNER_TOOLS.md) · [Release status](docs/RELEASE_STATUS.md) · [Security](SECURITY.md)
 
 CodeSecurity brings scanner results into one local workbench and your existing
 VS Code profile. Inspect a finding and its source, record a review decision,
