@@ -5,7 +5,7 @@ const actionLabels: Readonly<Record<string, string>> = Object.freeze({
   gate_exempt: 'non-blocking for gate',
   ignore: 'ignored and not counted',
   needs_review: 'needs review',
-  open: 'open and blocking',
+  open: 'open and gate-eligible',
 });
 
 // Matches the production FindingBulkAction request bound. Keep the selection
@@ -33,7 +33,7 @@ export function findingLifecycleActionDisabledReason(
 }
 
 const gateEffectLabels: Readonly<Record<string, string>> = Object.freeze({
-  blocking: 'Blocking',
+  blocking: 'Eligible for gate evaluation',
   non_blocking: 'Non-blocking for gate',
   excluded: 'Not counted',
 });
@@ -51,4 +51,15 @@ export function findingGateEffectLabel(effect: string): string {
 export function findingAdvisorVerdictLabel(verdict: string | null | undefined): string {
   if (!verdict) return '';
   return advisorVerdictLabels[verdict] || 'Advisor result available';
+}
+
+export function findingContributionLabel(reasons: readonly string[] | null | undefined): string {
+  if (!reasons) return 'Current policy contribution unavailable';
+  if (!reasons.length) return 'Does not contribute to the current policy failure';
+  return `Contributes to current failure (${reasons.join(', ')})`;
+}
+
+
+export function contributesToGate(reasons: readonly string[] | null | undefined): boolean {
+  return Boolean(reasons?.length);
 }

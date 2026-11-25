@@ -610,6 +610,11 @@ function validateFindingItem(value: FindingSummary, scanId: number): FindingSumm
     || !isBoundedText(value.fingerprint, 128)
     || !['open', 'needs_review', 'gate_exempt', 'accepted_risk', 'ignore', 'false_positive', 'fixed']
       .includes(value.lifecycle_status)
+    || (value.gate_contribution != null && (!Array.isArray(value.gate_contribution)
+      || value.gate_contribution.length > 2
+      || new Set(value.gate_contribution).size !== value.gate_contribution.length
+      || value.gate_contribution.some(reason => reason !== 'secret' && (reason !== value.severity || !['critical', 'high'].includes(reason)))
+      || (value.suppressed || value.gate_exempt) && value.gate_contribution.length > 0))
     || typeof value.gate_exempt !== 'boolean'
     || !['blocking', 'non_blocking', 'excluded'].includes(value.gate_effect)
     || typeof value.suppressed !== 'boolean'

@@ -181,3 +181,28 @@ optional profiles, scanner updates, crash recovery or cross-platform behavior.
 - [Container image and runtime contracts](scripts/compose-harness-lib.mjs)
 - [Test selection, viewports and assertions](playwright.config.ts)
 - [Public development guide](../../docs/DEVELOPMENT.md)
+
+## Review a failing gate in a real browser
+
+Build the Web app, install the API's test dependencies and install the pinned
+Playwright Chromium. With PostgreSQL server tools available, run this from the
+repository root:
+
+```sh
+PYTHONPATH=apps/api python tests/playwright/scripts/gate-review-api.py
+```
+
+Set `KODESEC_TEST_PG_BIN` if `initdb` and `pg_ctl` are outside PATH. Run
+under your own user account. For long checkout paths, set `KODESEC_TEST_SCRATCH`
+to a shorter, writable test directory for the database socket. The test starts a disposable database and a
+loopback API, pairs an isolated browser, and reviews two blockers in a
+three-finding scan. It checks cancellation, each saved disposition, the
+remaining blocker count, the unaffected finding and the final gate decision.
+The scanner is offline throughout so the test also exercises review of saved
+evidence. No scanner or developer repository is needed for this case.
+
+A second scan contains 224 findings across two API pages. Three contribute
+to the failed policy, including one with two reasons. The browser checks exact
+IDs for the blocker list and its intersections with text, severity and scanner
+filters. It also checks gate eligibility, ignored and exempt findings, empty
+results and searching from a later display page.

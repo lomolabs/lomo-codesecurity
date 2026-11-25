@@ -1681,3 +1681,88 @@ def test_worker_accepts_canonical_project_relative_finding_path() -> None:
     assert _normalized_finding_path(credential_path) == credential_path
     assert _normalized_finding_path("😀" * 1_024) == "😀" * 1_024
     assert _normalized_finding_path("😀" * 1_025) is None
+
+
+@pytest.mark.parametrize("fixture_name", ["finding_api", "postgres_finding_api"])
+def test_current_gate_contribution_union_and_typed_secret_controls(request, fixture_name):
+    client, runtime = request.getfixturevalue(fixture_name)
+    project_id, scan_id, ids = _seed_scan(runtime, name="gate-contributors", count=54)
+    with runtime.session_factory() as db:
+        for finding_id in ids:
+            db.get(Finding, finding_id).severity = "medium"
+        controls = [
+            ("trivy", "aws-access-key-id", "critical", {"rule_name": "Secret"}),
+            ("trivy", "github-pat", "critical", {}),
+            ("bearer", "javascript_lang_hardcoded_secret", "critical", {"native": "bearer-jsonv2"}),
+            ("checkov", "CKV_K8S_38", "high", {"tags": ["secret"]}),
+        ]
+        for finding_id, (scanner, rule, severity, metadata) in zip(ids, controls):
+            finding = db.get(Finding, finding_id)
+            finding.scanner, finding.rule_id, finding.severity = scanner, rule, severity
+            finding.metadata_json = metadata
+        db.get(Finding, ids[3]).message = "Ensure that Service Account Tokens are only mounted where necessary"
+        db.add(GatePolicy(project_id=project_id, active=True, max_critical=0, max_high=-1, block_secrets=True))
+        db.commit()
+
+    def review():
+        return client.get(f"/v1/scans/{scan_id}/summary").json()["gate_review"]
+
+    def page(**params):
+        response = client.get(f"/v1/scans/{scan_id}/findings", params=params)
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    assert review() == {"policy_project_id": project_id, "decision": "fail", "contributors": 3,
+                        "reasons": ["critical findings: 3 > max 0", "secret findings: 3"]}
+    rows = page()["items"]
+    assert len(rows) == 54 and all(row["gate_effect"] == "blocking" for row in rows)
+    assert [row["gate_contribution"] for row in rows] == [["critical", "secret"]] * 3 + [[]] * 51
+    assert client.get(f"/v1/findings/{ids[3]}").json()["gate_contribution"] == []
+
+    cursor = page(limit=2)["next_cursor"]
+    before = {"active": True, "max_critical": 0, "max_high": -1, "block_secrets": True}
+    updated = {**before, "max_critical": 2, "max_high": 0, "block_secrets": False}
+    response = client.put(f"/v1/gate-policies/{project_id}", json={**updated, "expected_policy": before})
+    assert response.status_code == 200, response.text
+    assert review()["contributors"] == 4
+    assert [row["gate_contribution"] for row in page()["items"][:4]] == [["critical"]] * 3 + [["high"]]
+    assert client.get(f"/v1/scans/{scan_id}/findings", params={"cursor": cursor}).status_code == 409
+    with runtime.session_factory() as db:
+        db.get(Finding, ids[0]).suppressed = True
+        db.get(Finding, ids[3]).gate_exempt = True
+        db.commit()
+    assert review()["decision"] == "pass" and review()["contributors"] == 0
+    assert all(row["gate_contribution"] == [] for row in page()["items"])
+    with runtime.session_factory() as db:
+        db.get(Scan, scan_id).status = "partial"
+        db.commit()
+    assert review()["decision"] == "incomplete" and review()["contributors"] is None
+    assert page()["items"][1]["gate_contribution"] is None
+    with runtime.session_factory() as db:
+        db.get(Scan, scan_id).status = "completed"
+        db.scalar(select(GatePolicy).where(GatePolicy.project_id == project_id)).active = False
+        db.commit()
+    assert review()["decision"] == "not_configured" and review()["contributors"] is None
+
+
+@pytest.mark.parametrize("fixture_name", ["finding_api", "postgres_finding_api"])
+def test_secret_gate_counts_dedicated_detectors_and_exact_mixed_scanner_metadata(request, fixture_name):
+    client, runtime = request.getfixturevalue(fixture_name)
+    project_id, scan_id, ids = _seed_scan(runtime, name="secret-classes", count=7)
+    cases = [
+        ("gitleaks", {}), ("trufflehog", {}), ("secrets-lite", {}),
+        ("trivy", {"rule_name": "Secret"}), ("opengrep", {"tags": ["security", "SeCrEtS"]}),
+        ("opengrep", {"tags": "secret"}), ("checkov", {"rule_name": "Secret", "tags": ["secret"]}),
+    ]
+    with runtime.session_factory() as db:
+        db.add(GatePolicy(project_id=project_id, active=True, max_critical=-1, max_high=-1, block_secrets=True))
+        for finding_id, (scanner, metadata) in zip(ids, cases, strict=True):
+            finding = db.get(Finding, finding_id)
+            finding.scanner, finding.metadata_json = scanner, metadata
+            finding.rule_id = "fixture-rule"
+            finding.message = "credential token and private-key configuration"
+        db.commit()
+    review = client.get(f"/v1/scans/{scan_id}/summary").json()["gate_review"]
+    assert review["contributors"] == 5
+    items = client.get(f"/v1/scans/{scan_id}/findings").json()["items"]
+    assert [item["gate_contribution"] for item in items] == [["secret"]] * 5 + [[], []]

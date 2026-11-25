@@ -276,7 +276,9 @@ def test_remove_refuses_cancel_stale_revision_changed_hook_and_other_profile(lan
     assert policy.load_policy(lane.db, REPOSITORY)[1].revision == lane.current.revision
 
 
-def test_current_gate_and_lifecycle_control_verdict_not_latest_scan(lane):
+@pytest.mark.parametrize("fixture_name", ["lane", "postgres_lane"])
+def test_current_gate_and_lifecycle_control_verdict_not_latest_scan(request, fixture_name):
+    lane = request.getfixturevalue(fixture_name)
     _, scan, _, outgoing = seed_scan(lane)
     clean = evidence.check_git_push(REPOSITORY, outgoing, lane.request, lane.runtime, lane.db)
     assert clean["decision"] == "pass" and clean["reason_code"] is None
@@ -287,6 +289,15 @@ def test_current_gate_and_lifecycle_control_verdict_not_latest_scan(lane):
     lane.db.add(finding)
     lane.db.commit()
     assert evidence.check_git_push(REPOSITORY, outgoing, lane.request, lane.runtime, lane.db)["decision"] == "blocked"
+    review = main.get_scan_summary(scan.id, db=lane.db)["gate_review"]
+    assert review["policy_project_id"] == 1 and review["decision"] == "fail"
+    assert review["contributors"] == 1
+    assert main.get_finding(finding.id, db=lane.db)["gate_contribution"] == ["high", "secret"]
+    assert lane.db.scalar(select(GatePolicy).where(GatePolicy.project_id == scan.project_id)).active is False
+    before = scan.findings_revision
+    main._recalculate_project_scan_gates(lane.db, 1)
+    lane.db.commit()
+    assert scan.findings_revision == before + 1
     finding.gate_exempt = True
     finding.lifecycle_status = "gate_exempt"
     lane.db.commit()
@@ -295,6 +306,39 @@ def test_current_gate_and_lifecycle_control_verdict_not_latest_scan(lane):
     gate.active = False
     lane.db.commit()
     assert evidence.check_git_push(REPOSITORY, outgoing, lane.request, lane.runtime, lane.db)["reason_code"] == "push_gate_not_configured"
+
+
+@pytest.mark.parametrize("fixture_name", ["lane", "postgres_lane"])
+def test_immutable_review_empty_disabled_incomplete_and_missing_policy_binding(request, fixture_name):
+    lane = request.getfixturevalue(fixture_name)
+    _, scan, _, _ = seed_scan(lane)
+    recorded = (scan.gate_decision, scan.gate_reasons)
+
+    def review():
+        return main.get_scan_summary(scan.id, db=lane.db)["gate_review"]
+
+    assert review() == {"policy_project_id": 1, "decision": "pass", "reasons": [], "contributors": 0}
+    revision = scan.findings_revision
+    disabled = policy.update_push_policy(REPOSITORY, policy.PushPolicyUpdate(
+        expected_revision=lane.current.revision, enabled=False, confirm_bypass=True), lane.request, lane.db)
+    assert scan.findings_revision == revision + 1
+    assert review() == {"policy_project_id": 1, "decision": "not_configured", "reasons": [], "contributors": None}
+    policy.update_push_policy(REPOSITORY, policy.PushPolicyUpdate(
+        expected_revision=disabled.revision, enabled=True), lane.request, lane.db)
+    assert scan.findings_revision == revision + 2
+    scan.status = "partial"
+    lane.db.commit()
+    assert review() == {"policy_project_id": 1, "decision": "incomplete", "reasons": [], "contributors": None}
+    scan.status = "completed"
+    row, current = policy.load_policy(lane.db, REPOSITORY)
+    lane.db.delete(row)
+    lane.db.commit()
+    assert review() == {"policy_project_id": None, "decision": "unavailable", "reasons": [], "contributors": None}
+    lane.db.add(RuntimeConfig(key=policy.POLICY_PREFIX + REPOSITORY, value=current.model_dump_json()))
+    lane.db.delete(lane.db.get(Project, 1))
+    lane.db.commit()
+    assert review() == {"policy_project_id": None, "decision": "unavailable", "reasons": [], "contributors": None}
+    assert (scan.gate_decision, scan.gate_reasons) == recorded
 
 
 def test_persisted_scanner_runtime_identity_allows_only_matching_git_evidence(lane):

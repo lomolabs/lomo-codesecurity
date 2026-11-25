@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 
 from .auth import AuthContext, _browser_context, _ide_context, active_ide_capability_record
 from .db import get_db
-from .models import GatePolicy, Project, RuntimeConfig
+from .models import GatePolicy, Project, RuntimeConfig, Scan
 from .redaction import contains_explicit_credential, redact_text
 from .source_snapshots import source_snapshot_project_path
 
@@ -197,6 +197,26 @@ def _removal_receipt(db: Session, repository_id: str) -> tuple[RuntimeConfig | N
     return row, receipt
 
 
+def bound_snapshot_projects(db: Session, project_id: int) -> list[int]:
+    """Find immutable source projects whose displayed policy belongs to this root."""
+    rows = db.scalars(select(RuntimeConfig.key).where(RuntimeConfig.key.startswith(POLICY_PREFIX)))
+    paths = []
+    for key in rows:
+        policy = load_policy(db, key[len(POLICY_PREFIX):])[1]
+        if policy.project_id == project_id:
+            paths.append(source_snapshot_project_path(policy.repository_id, kind="git-commit"))
+    if not paths:
+        return []
+    return list(db.scalars(select(Project.id).where(Project.repo_path.in_(paths), Project.id != project_id)))
+
+
+def _invalidate_snapshot_review(db: Session, repository_id: str) -> None:
+    project = select(Project.id).where(Project.repo_path == source_snapshot_project_path(repository_id, kind="git-commit"))
+    for scan in db.scalars(select(Scan).where(Scan.project_id.in_(project)).order_by(Scan.id).with_for_update()):
+        scan.revision += 1
+        scan.findings_revision += 1
+
+
 def guard_push_project_deletion(db: Session, project: Project) -> None:
     """Hold registration admission through deletion; never orphan a gate or Git source."""
     lock_push_repository(db, "registration")
@@ -225,13 +245,15 @@ def _active_member(db: Session, slot: str, generation: int | None, *, for_update
     return active if active is not None and active.get("generation") == generation else None
 
 
-def _save(db: Session, row: RuntimeConfig, policy: PushPolicy) -> PushPolicy:
+def _save(db: Session, row: RuntimeConfig, policy: PushPolicy, *, gate_binding_changed: bool = False) -> PushPolicy:
     original = row.value
     encoded = policy.model_dump_json()
     result = db.execute(update(RuntimeConfig).where(RuntimeConfig.key == row.key, RuntimeConfig.value == original).values(value=encoded), execution_options={"synchronize_session": False})
     if result.rowcount != 1:
         db.rollback()
         raise problem("push_policy_changed", "Push protection changed in another window. Refresh before changing it.")
+    if gate_binding_changed:
+        _invalidate_snapshot_review(db, policy.repository_id)
     db.commit()
     db.expire(row)
     return policy
@@ -300,6 +322,7 @@ def register_push_repository(payload: PushPolicyCreate, request: Request, db: Se
         root_path=payload.root_path, git_directory=payload.git_directory,
         revision=removed.revision + 1 if removed is not None else 1, members=[member])
     db.add(RuntimeConfig(key=key, value=policy.model_dump_json()))
+    _invalidate_snapshot_review(db, payload.repository_id)
     try:
         db.commit()
     except IntegrityError as exc:
@@ -346,6 +369,7 @@ def remove_push_repository(repository_id: str, payload: PushPolicyRemoval, reque
     else:
         receipt_row.value = receipt.model_dump_json()
     db.delete(row)
+    _invalidate_snapshot_review(db, repository_id)
     db.commit()
     return {"repository_id": repository_id, "removed": True, "revision": receipt.revision,
         "tree_bindings_deleted": removed_count, "already_removed": False}
@@ -368,7 +392,7 @@ def update_push_policy(repository_id: str, payload: PushPolicyUpdate, request: R
         # Any policy change needs current host observation. Retain the last
         # observation so clients can explain why requested != observed.
         "reason_code": "policy_changed",
-    }))
+    }), gate_binding_changed=True)
 
 
 @router.post("/{repository_id}/observation", response_model=PushPolicy)

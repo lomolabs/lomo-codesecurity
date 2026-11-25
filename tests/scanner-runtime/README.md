@@ -12,3 +12,9 @@ A successful image build alone does not establish scanner readiness.
 The contributor baseline runs scanner unit tests from
 `services/scanner/tests`. Private release controllers, historical diagnostic
 admissions and their runtime inventories are not distributed here.
+
+Dependency readiness uses plain-text `.fixture` inputs. The scanner image and
+isolated test runs give those copies their standard manifest names so Syft,
+Grype and Trivy can recognize them. The declared package versions are
+intentional positive controls. None are installed. Dependency alerts on the
+workbench's own build and runtime manifests should be investigated normally.

@@ -2453,7 +2453,7 @@ function workbenchUri(
   view?: 'projects' | 'jobs' | 'findings' | 'tools' | 'settings',
   scanId?: number,
   scanFindingNumber?: number,
-  setup?: 'source' | 'advisor' | 'ide-access' | 'push-protection',
+  setup?: 'source' | 'advisor' | 'ide-access' | 'push-protection' | 'gate-failures',
   sourceSetupPath?: string,
   pushProtectionRepositoryId?: string,
 ): vscode.Uri {
@@ -2463,6 +2463,7 @@ function workbenchUri(
   }
   if (view === 'findings' && scanId) {
     url.searchParams.set('scan', String(scanId));
+    if (setup === 'gate-failures' && !scanFindingNumber) url.searchParams.set('gate', 'contributing');
   }
   if (view === 'findings' && scanFindingNumber) {
     url.searchParams.set('finding', String(scanFindingNumber));
@@ -3347,7 +3348,7 @@ async function openWorkbench(
   view: 'projects' | 'jobs' | 'findings' | 'tools' | 'settings',
   scanId?: number,
   scanFindingNumber?: number,
-  setup?: 'source' | 'advisor' | 'push-protection',
+  setup?: 'source' | 'advisor' | 'push-protection' | 'gate-failures',
   sourceSetupPath?: string,
   pushProtectionRepositoryId?: string,
 ) {
@@ -3892,7 +3893,7 @@ async function setLifecycle(value: unknown): Promise<void> {
   const context = validFindingContext(value);
   const current = await authoritativeFinding(context);
   const choices: Array<{ label: string; action: FindingLifecycle; description: string }> = [
-    { label: 'Needs review', action: 'needs_review', description: 'Keep active and blocking according to policy.' },
+    { label: 'Needs review', action: 'needs_review', description: 'Keep active and eligible for gate evaluation.' },
     { label: 'Non-blocking for gate', action: 'gate_exempt', description: 'Exclude from the gate; a reason is required.' },
     { label: 'Accepted risk', action: 'accepted_risk', description: 'Accept this risk; a reason is required.' },
     { label: 'Ignored', action: 'ignore', description: 'Suppress from active review; a reason is required.' },
@@ -4682,7 +4683,7 @@ async function protectPushes(context: vscode.ExtensionContext, checkOutgoing = f
             title: 'Review blocking outgoing findings', placeHolder: 'Choose a failed committed-tree scan.', ignoreFocusOut: true,
           });
           assertCurrent();
-          if (chosen && choices.includes(chosen)) await openWorkbench('findings', chosen.scanId);
+          if (chosen && choices.includes(chosen)) await openWorkbench('findings', chosen.scanId, undefined, 'gate-failures');
         },
         showRecovery: async (message) => {
           if (await vscode.window.showWarningMessage(message, 'Open Jobs') === 'Open Jobs') {

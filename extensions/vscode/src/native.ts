@@ -659,6 +659,7 @@ function decorationFindingSignature(projected: ProjectedLineFinding): readonly u
     finding.severity,
     finding.lifecycle_status,
     finding.gate_effect,
+    finding.gate_contribution?.join() ?? null,
     finding.occurrence_count,
     finding.first_seen_scan_id || null,
     boundedSingleLineText(finding.first_seen_display_id || '', 80),
@@ -667,7 +668,10 @@ function decorationFindingSignature(projected: ProjectedLineFinding): readonly u
 }
 
 function encodedCommandArguments(context: FindingCommandContext): string {
-  return encodeURIComponent(JSON.stringify([context])).replace(/[!'()*]/g, (character) => (
+  // The editor parses the URI and its command opener decodes the query again.
+  // Keep any percent escapes in the workspace URI opaque until JSON.parse.
+  const json = JSON.stringify([context]).replace(/%/g, '\\u0025');
+  return encodeURIComponent(json).replace(/[!'()*]/g, (character) => (
     `%${character.charCodeAt(0).toString(16).toUpperCase()}`
   ));
 }
@@ -678,7 +682,6 @@ function appendFindingHover(
   findingsRevision: number,
   finding: FindingSummary,
   dirty: boolean,
-  interactivity: 'commands' | 'read_only',
 ): void {
   markdown.appendMarkdown('**');
   markdown.appendText(`${boundedSingleLineText(finding.display_id, 80)} · ${finding.severity.toUpperCase()}`);
@@ -688,8 +691,11 @@ function appendFindingHover(
   markdown.appendText(boundedSingleLineText(finding.rule_id, 160));
   markdown.appendMarkdown('  \n**Lifecycle:** ');
   markdown.appendText(findingLifecycleLabel(finding.lifecycle_status));
-  markdown.appendMarkdown('  \n**Gate effect:** ');
+  markdown.appendMarkdown('  \n**Gate eligibility:** ');
   markdown.appendText(findingGateEffectLabel(finding.gate_effect));
+  markdown.appendMarkdown('  \n**Current failure contribution:** ');
+  markdown.appendText(finding.gate_contribution == null ? 'Unavailable'
+    : finding.gate_contribution.length ? finding.gate_contribution.join(', ') : 'None');
   markdown.appendMarkdown('  \n**Repeat history:** ');
   markdown.appendText(`${Math.max(finding.occurrence_count, 1)} occurrence(s)`);
   if (finding.first_seen_display_id) {
@@ -702,32 +708,19 @@ function appendFindingHover(
   if (dirty) {
     markdown.appendMarkdown('**Warning:** Unsaved editor content was not included in this disk-based scan.\n\n');
   }
-  if (interactivity === 'commands') {
-    const context = encodedCommandArguments(commandContext(workspaceKey, findingsRevision, finding));
-    markdown.appendMarkdown(
-      `[Open Finding in Web](command:lomoCodeSecurity.openFinding?${context}) · `
-      + `[Run Advisor](command:lomoCodeSecurity.runAdvisor?${context})`,
-    );
-  } else {
-    markdown.appendText('Actions are available from the current source-range hover or CodeSecurity Findings tree.');
-  }
+  const context = encodedCommandArguments(commandContext(workspaceKey, findingsRevision, finding));
+  markdown.appendMarkdown(HOVER_ACTIONS.map(([label, command]) =>
+    `[${label}](command:${command}?${context})`).join(' · '));
 }
 
-function hoverMarkdown(
-  workspaceKey: string,
-  findingsRevision: number,
-  finding: FindingSummary,
-  dirty: boolean,
-  interactivity: 'commands' | 'read_only',
-): vscode.MarkdownString {
-  const markdown = new vscode.MarkdownString();
-  markdown.supportHtml = false;
-  markdown.isTrusted = interactivity === 'commands'
-    ? { enabledCommands: ['lomoCodeSecurity.openFinding', 'lomoCodeSecurity.runAdvisor'] }
-    : false;
-  appendFindingHover(markdown, workspaceKey, findingsRevision, finding, dirty, interactivity);
-  return markdown;
-}
+// Labels and command IDs are extension-owned. Finding text is always escaped.
+const HOVER_ACTIONS = [
+  ['Open Finding in Web', 'lomoCodeSecurity.openFinding'],
+  ['Change lifecycle…', 'lomoCodeSecurity.setLifecycle'],
+  ['Run Advisor', 'lomoCodeSecurity.runAdvisor'],
+  ['Rescan file', 'lomoCodeSecurity.rescanFile'],
+  ['Delete finding…', 'lomoCodeSecurity.deleteFinding'],
+] as const;
 
 type FindingHoverTarget = Readonly<{
   workspaceKey: string;
@@ -740,15 +733,12 @@ type FindingHoverTarget = Readonly<{
 const MAX_INTERACTIVE_HOVER_FINDINGS = 8;
 
 function interactiveHoverMarkdown(
-  targets: readonly FindingHoverTarget[],
+  targets: readonly Pick<FindingHoverTarget, 'workspaceKey' | 'findingsRevision' | 'finding'>[],
   dirty: boolean,
-  interactivity: 'commands' | 'read_only' = 'commands',
 ): vscode.MarkdownString {
   const markdown = new vscode.MarkdownString();
   markdown.supportHtml = false;
-  markdown.isTrusted = interactivity === 'commands'
-    ? { enabledCommands: ['lomoCodeSecurity.openFinding', 'lomoCodeSecurity.runAdvisor'] }
-    : false;
+  markdown.isTrusted = { enabledCommands: HOVER_ACTIONS.map(([, command]) => command) };
   const rendered = targets.slice(0, MAX_INTERACTIVE_HOVER_FINDINGS);
   rendered.forEach((target, index) => {
     if (index > 0) markdown.appendMarkdown('\n\n---\n\n');
@@ -758,7 +748,6 @@ function interactiveHoverMarkdown(
       target.findingsRevision,
       target.finding,
       dirty,
-      interactivity,
     );
   });
   const omitted = targets.length - rendered.length;
@@ -903,10 +892,11 @@ class FindingTreeProvider implements vscode.TreeDataProvider<FindingTreeNodeUnio
       `${node.finding.display_id} · ${boundedSingleLineText(findingTitle(node.finding), 100)}`,
       vscode.TreeItemCollapsibleState.None,
     );
-    item.description = `${node.finding.scanner} · ${node.finding.rule_id}`;
+    item.description = [node.finding.scanner, node.finding.rule_id,
+      ...(node.finding.gate_contribution?.length ? ['current policy failure'] : [])].join(' · ');
     item.tooltip = `${node.finding.file_path}:${node.finding.start_line || 1}`;
     item.contextValue = 'lomoCodeSecurity.finding';
-    item.iconPath = new vscode.ThemeIcon(node.finding.gate_effect === 'blocking' ? 'error' : 'shield');
+    item.iconPath = new vscode.ThemeIcon(node.finding.gate_contribution?.length ? 'error' : 'shield');
     const context = commandContext(node.workspace.key, node.workspace.revision, node.finding);
     this.findingCommandContexts.set(node, context);
     item.command = {
@@ -1574,6 +1564,20 @@ export class NativeFindingController implements vscode.Disposable {
       .filter((uriKey) => selected.has(uriKey)));
   }
 
+  // A point report owns a precise diagnostic but has no text to aim at.
+  // Let the containing line supply a hit target without changing its stored
+  // location, the source selection, or the identity used by lifecycle actions.
+  private findingsStartingOnLine(
+    document: vscode.TextDocument, entry: OwnedFindingEntry, line: number, pointsOnly: boolean,
+  ): FindingHit[] {
+    if (line < 0 || line >= document.lineCount) return [];
+    const start = new vscode.Position(line, 0);
+    const end = new vscode.Position(line + 1, 0);
+    return this.documentIntervalIndex(document, entry.findings).all(start, end, (finding, range) =>
+      range.start.line === line && (!pointsOnly || comparePosition(range.start, range.end) === 0)
+        ? { finding, range } : undefined);
+  }
+
   private provideHover(document: vscode.TextDocument, position: vscode.Position): vscode.Hover | undefined {
     const editor = vscode.window.activeTextEditor;
     const selection = editor?.document === document && editor.selection
@@ -1601,8 +1605,11 @@ export class NativeFindingController implements vscode.Disposable {
       && comparePosition(exactSelection.end, position) === 0
       ? retainedResolution.context
       : undefined;
-    const targets: FindingHoverTarget[] = [];
-    for (const entry of this.entriesForUri(document.uri)) {
+    const entries = this.entriesForUri(document.uri);
+    if (!entries.length) return undefined;
+    let targets: FindingHoverTarget[] = [];
+    let pointerAnchor: vscode.Range | undefined;
+    for (const entry of entries) {
       if (workspaceFileIsStale(entry.workspace, entry.filePath)) continue;
       targets.push(...this.documentIntervalIndex(document, entry.findings).all(
         position,
@@ -1629,7 +1636,41 @@ export class NativeFindingController implements vscode.Disposable {
           } : undefined,
       ));
     }
-    if (targets.length === 0) return undefined;
+    // An interior same-line hit is strictly before EOL. Keep that common
+    // lookup on the warmed interval index without reading the document again.
+    const mayBeLineEnd = !targets.length || targets.some(({ range }) =>
+      range.end.line > position.line || comparePosition(range.end, position) === 0);
+    if (mayBeLineEnd && position.line >= 0 && position.line < document.lineCount
+      && position.character === document.lineAt(position.line).text.length
+      && vscode.workspace.getConfiguration('lomoCodeSecurity').get<AnnotationMode>('inlineAnnotations', 'compact') !== 'off') {
+      const annotated: FindingHoverTarget[] = [];
+      for (const entry of entries) {
+        if (workspaceFileIsStale(entry.workspace, entry.filePath)) continue;
+        for (const hit of this.findingsStartingOnLine(document, entry, position.line, false)) {
+          annotated.push({ ...hit, workspaceKey: entry.workspace.key,
+            findingsRevision: entry.workspace.revision, filePath: entry.filePath });
+        }
+      }
+      if (annotated.length) {
+        annotated.sort((left, right) => compareFindingPresentation(left.finding, right.finding)
+          || compareText(left.workspaceKey, right.workspaceKey));
+        targets = annotated;
+        pointerAnchor = new vscode.Range(position, position);
+      }
+    }
+    if (!targets.length) {
+      for (const entry of entries) {
+        if (workspaceFileIsStale(entry.workspace, entry.filePath)) continue;
+        for (const hit of this.findingsStartingOnLine(document, entry, position.line, true)) {
+          targets.push({ ...hit, workspaceKey: entry.workspace.key,
+            findingsRevision: entry.workspace.revision, filePath: entry.filePath });
+        }
+      }
+      if (!targets.length) return undefined;
+      // Anchor only the hover to the pointer. The exact point is still used for
+      // disambiguation, navigation and source evidence.
+      pointerAnchor = new vscode.Range(position, position);
+    }
 
     const exactTargets = exactSelection
       ? targets.filter((target) => sameRange(target.range, exactSelection))
@@ -1650,22 +1691,12 @@ export class NativeFindingController implements vscode.Disposable {
         retainedResolution.context,
       ));
     }
-    // A tree reveal supplies exact identity even when scanners report the same
-    // point range. A bare caret (or stale reveal) does not supply that authority.
-    const ambiguousCollapsedSelection = Boolean(
-      exactSelection
-      && comparePosition(exactSelection.start, exactSelection.end) === 0
-      && exactTargets.length > 1
-      && selectedIndex < 0
-    );
+    // A reveal may order the menu. Every link binds its own current finding,
+    // so overlapping reports never need an implicit command target.
     if (selectedIndex > 0) targets.unshift(...targets.splice(selectedIndex, 1));
     return new vscode.Hover(
-      interactiveHoverMarkdown(
-        targets,
-        document.isDirty,
-        ambiguousCollapsedSelection ? 'read_only' : 'commands',
-      ),
-      targets[0].range,
+      interactiveHoverMarkdown(targets, document.isDirty),
+      pointerAnchor ?? targets[0].range,
     );
   }
 
@@ -1722,6 +1753,9 @@ export class NativeFindingController implements vscode.Disposable {
           (finding, candidateRange) => candidateRange.intersection(range) !== undefined
             ? { finding, range: candidateRange } : undefined,
         ));
+      }
+      if (!hits.length && comparePosition(range.start, range.end) === 0) {
+        hits.push(...this.findingsStartingOnLine(document, entry, range.start.line, false));
       }
       for (const hit of hits) {
         if (pending.length === MAX_CODE_ACTION_CONTEXTS) {
@@ -3063,24 +3097,12 @@ export class NativeFindingController implements vscode.Disposable {
       const finding = primary.finding;
       const extra = findings.length - 1;
       const lineEnd = new vscode.Position(line, editor.document.lineAt(line).text.length);
-      // Keep the informational annotation hover at the line end, outside the
-      // exclusive source range owned by the richer actionable HoverProvider.
       const inlineRange = new vscode.Range(lineEnd, lineEnd);
-      const hoverMessage = hoverMarkdown(
-        primary.workspaceKey,
-        primary.workspaceRevision,
-        finding,
-        editor.document.isDirty,
-        'read_only',
-      );
-      if (extra > 0) {
-        hoverMessage.appendMarkdown('\n\n');
-        hoverMessage.appendText(`${extra} other report${extra === 1 ? '' : 's'} on this line. These may describe different issues; each report keeps its own severity and actions.`);
-      }
+      // The registered provider owns the menu at this anchor. Monaco combines
+      // provider and decoration hovers, which would render every action twice.
       const label = findingInlineAnnotation(finding, extra, mode);
       inline.push({
         range: inlineRange,
-        hoverMessage,
         renderOptions: { after: { contentText: label } },
       });
       signatureLines.push([

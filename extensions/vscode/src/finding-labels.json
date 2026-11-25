@@ -1,6 +1,6 @@
 {
   "lifecycle": {
-    "open": "Open and blocking",
+    "open": "Open and gate-eligible",
     "needs_review": "Needs review",
     "gate_exempt": "Non-blocking for gate",
     "accepted_risk": "Accepted risk",
@@ -9,7 +9,7 @@
     "fixed": "Fixed"
   },
   "gate_effect": {
-    "blocking": "Blocking",
+    "blocking": "Eligible for gate evaluation",
     "non_blocking": "Non-blocking for gate",
     "excluded": "Not counted"
   }

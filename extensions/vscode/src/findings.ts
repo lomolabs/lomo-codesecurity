@@ -74,6 +74,7 @@ export type FindingSummary = {
   lifecycle_status: FindingLifecycle;
   gate_exempt: boolean;
   gate_effect: FindingGateEffect;
+  gate_contribution?: ('critical' | 'high' | 'secret')[] | null;
   suppressed: boolean;
   occurrence_count: number;
   is_repeat: boolean;
@@ -245,6 +246,7 @@ export function findingSummary(value: FindingSummary): FindingSummary {
     lifecycle_status: value.lifecycle_status,
     gate_exempt: value.gate_exempt,
     gate_effect: value.gate_effect,
+    ...(value.gate_contribution === undefined ? {} : { gate_contribution: value.gate_contribution }),
     suppressed: value.suppressed,
     occurrence_count: value.occurrence_count,
     is_repeat: value.is_repeat,

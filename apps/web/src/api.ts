@@ -206,6 +206,7 @@ export type Finding = {
   lifecycle_updated_at?: string;
   gate_exempt: boolean;
   gate_effect: 'blocking' | 'non_blocking' | 'excluded';
+  gate_contribution?: Array<'critical' | 'high' | 'secret'> | null;
   gate_exempt_reason?: string;
   occurrence_count: number;
   is_repeat: boolean;
@@ -336,7 +337,15 @@ export type LoadFindingsOptions = {
   onInitialPage?: (page: LoadedFindings) => void;
 };
 
+export type ScanGateReview = {
+  policy_project_id: number | null;
+  decision: 'pass' | 'fail' | 'not_configured' | 'incomplete' | 'unavailable';
+  reasons: string[];
+  contributors: number | null;
+};
+
 export type ScanSummary = {
+  gate_review?: ScanGateReview;
   scan: Pick<Scan,
     | 'id'
     | 'project_id'
@@ -1005,6 +1014,11 @@ function validateFindingPage(
       || !['open', 'needs_review', 'gate_exempt', 'accepted_risk', 'ignore', 'false_positive', 'fixed'].includes(item.lifecycle_status)
       || !['blocking', 'non_blocking', 'excluded'].includes(item.gate_effect)
       || item.gate_effect !== expectedGateEffect
+      || (item.gate_contribution != null && (!Array.isArray(item.gate_contribution)
+        || item.gate_contribution.length > 2
+        || new Set(item.gate_contribution).size !== item.gate_contribution.length
+        || item.gate_contribution.some(reason => reason !== 'secret' && (reason !== item.severity || !['critical', 'high'].includes(reason)))
+        || (item.suppressed || item.gate_exempt) && item.gate_contribution.length > 0))
       || item.advisor_confidence != null && (!Number.isFinite(item.advisor_confidence) || item.advisor_confidence < 0 || item.advisor_confidence > 1)
       || hasInvalidRange
       || pageIds.has(item.id)

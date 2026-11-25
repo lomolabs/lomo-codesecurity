@@ -627,6 +627,10 @@ test('pagination rejects revision drift, repeated cursors, and false completion'
 
 test('hostile finding pages reject oversized, cross-scan, malformed-range, and duplicate items', async () => {
   const invalidItems = [
+    item(1, { gate_contribution: ['critical'] }),
+    item(1, { gate_contribution: ['secret', 'secret'] }),
+    item(1, { gate_contribution: ['token'] }),
+    item(1, { lifecycle_status: 'gate_exempt', gate_exempt: true, gate_effect: 'non_blocking', gate_contribution: ['high'] }),
     item(1, { scan_id: 99 }),
     item(1, { file_path: '../outside.ts' }),
     item(1, { start_column: null, end_column: 9 }),
@@ -656,13 +660,14 @@ test('hostile finding pages reject oversized, cross-scan, malformed-range, and d
   }), 41), /invalid lightweight finding item/);
 
   const sanitized = await loadFindingPages(async () => ({
-    items: [{ ...item(1), code_snippet: 'must not enter the lightweight cache' }],
+    items: [{ ...item(1), gate_contribution: ['high', 'secret'], code_snippet: 'must not enter the lightweight cache' }],
     total: 1,
     truncated: false,
     next_cursor: null,
     revision: 4,
   }), 41);
   assert.equal(Object.hasOwn(sanitized.findings[0], 'code_snippet'), false);
+  assert.deepEqual(sanitized.findings[0].gate_contribution, ['high', 'secret']);
 
   const insertionPoint = await loadFindingPages(async () => ({
     items: [item(1, {

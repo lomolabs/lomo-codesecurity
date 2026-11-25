@@ -17,11 +17,11 @@ test('finding lifecycle and gate labels stay human-readable across native surfac
   assert.deepEqual(
     ['open', 'needs_review', 'gate_exempt', 'accepted_risk', 'ignore', 'false_positive', 'fixed']
       .map((value) => findingLifecycleLabel(value)),
-    ['Open and blocking', 'Needs review', 'Non-blocking for gate', 'Accepted risk', 'Ignored and not counted', 'False positive', 'Fixed'],
+    ['Open and gate-eligible', 'Needs review', 'Non-blocking for gate', 'Accepted risk', 'Ignored and not counted', 'False positive', 'Fixed'],
   );
   assert.deepEqual(
     ['blocking', 'non_blocking', 'excluded'].map((value) => findingGateEffectLabel(value)),
-    ['Blocking', 'Non-blocking for gate', 'Not counted'],
+    ['Eligible for gate evaluation', 'Non-blocking for gate', 'Not counted'],
   );
 });
 
