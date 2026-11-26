@@ -180,15 +180,15 @@ def test_curated_locks_strict_load_and_preserve_readiness_boundaries() -> None:
     assert tools.schema_version == 2
     trivy_contract = tools.tool("trivy").requirements[0].data_contract
     assert trivy_contract.kind == "trivy-db-metadata/v2"
-    assert trivy_contract.publisher_updated_at == "2026-10-23T01:18:09.482141619Z"
+    assert trivy_contract.publisher_updated_at == "2026-11-25T19:00:05.492170927Z"
     assert (
         trivy_contract.publisher_refresh_due_at
-        == "2026-10-24T01:18:09.482141078Z"
+        == "2026-11-26T19:00:05.492170366Z"
     )
     grype_contract = tools.tool("grype").requirements[0].data_contract
     assert grype_contract.kind == "grype-db-status/v1"
     assert grype_contract.schema_version == "v6.1.10"
-    assert grype_contract.built_at == "2026-10-22T18:51:21Z"
+    assert grype_contract.built_at == "2026-11-25T06:22:21Z"
     assert tools.tool("bearer").requirements[0].provenance == "verified"
     assert tools.tool("bearer").binary.license.state == "verified"
     opengrep = rules.rule_set("opengrep-reviewed-rules")

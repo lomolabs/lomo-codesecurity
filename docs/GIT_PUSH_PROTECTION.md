@@ -80,7 +80,7 @@ for that exact clone. Pulling alone does not resolve missing security evidence.
 
 After a completed failed outgoing scan, **Review blocking findings** opens its
 exact committed-tree scan, including an earlier historical tree with a clean
-tip. Choose the intended scan if several trees fail. **Open protection settings**
+tip. If the notification disappears, open the VS Code notification bell and select **Review blocking findings**. When several trees fail, check which commit you want to review. The highest scan number can belong to an earlier commit. **Open protection settings**
 opens that repository's record without changing a gate or permission.
 
 Normal Git branch and remote setup still applies. An unpublished branch or a

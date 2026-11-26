@@ -116,7 +116,7 @@ is also available.
 4. **Choose protection.** Review thresholds, then use **Protect Pushes…** to
    approve and apply protection to that clone. **Check Outgoing Commits…**
    checks the committed history you plan to push. A workspace scan alone does
-   not install a hook.
+   not install a hook. If Git refuses the push, [review the blocking findings](docs/GIT_PUSH_PROTECTION.md#understand-a-blocked-push).
 
 The [workflow guide](docs/GUI_FIRST_WORKFLOW.md) explains the controls in detail.
 Incomplete, cancelled, failed or stale evidence cannot authorize a protected
